@@ -5032,7 +5032,7 @@ the if condition."
 (defun python--completion-predicate (_ buffer)
   (provided-mode-derived-p
    (buffer-local-value 'major-mode buffer)
-   'python-mode))
+   'python-base-mode))
 
 (defmacro python-skeleton-define (name doc &rest skel)
   "Define a `python-mode' skeleton using NAME DOC and SKEL.
@@ -6759,8 +6759,6 @@ implementations: `python-mode' and `python-ts-mode'."
 
   (setq-local prettify-symbols-alist python-prettify-symbols-alist)
 
-  (python-skeleton-add-menu-items)
-
   (make-local-variable 'python-shell-internal-buffer)
 
   (add-hook 'flymake-diagnostic-functions #'python-flymake nil t))
@@ -6783,6 +6781,8 @@ implementations: `python-mode' and `python-ts-mode'."
               #'python-imenu-create-index)
 
   (add-hook 'which-func-functions #'python-info-current-defun nil t)
+
+  (python-skeleton-add-menu-items)
 
   (when python-indent-guess-indent-offset
     (python-indent-guess-indent-offset)))
@@ -6809,6 +6809,8 @@ implementations: `python-mode' and `python-ts-mode'."
     (setq-local treesit-defun-name-function
                 #'python--treesit-defun-name)
     (treesit-major-mode-setup)
+
+    (python-skeleton-add-menu-items)
 
     (when python-indent-guess-indent-offset
       (python-indent-guess-indent-offset))
@@ -6856,7 +6858,7 @@ implementations: `python-mode' and `python-ts-mode'."
 (defun python-shell--completion-predicate (_ buffer)
   (provided-mode-derived-p
    (buffer-local-value 'major-mode buffer)
-   'python-mode 'inferior-python-mode))
+   'python-base-mode 'inferior-python-mode))
 
 ;; Commands that only make sense in the Python shell or when editing
 ;; Python code.
