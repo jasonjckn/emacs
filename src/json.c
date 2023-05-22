@@ -201,15 +201,17 @@ int pthread_mutex_timedlock( pthread_mutex_t *restrict mtx,
     nanosleep(&dur, NULL);
   }
 
-  switch (rc) {
-  case 0:
-    return thrd_success;
-  case ETIMEDOUT:
-  case EBUSY:
-    return thrd_timedout;
-  default:
-    return thrd_error;
-  }
+  return rc;
+
+  /* switch (rc) { */
+  /* case 0: */
+  /*   return thrd_success; */
+  /* case ETIMEDOUT: */
+  /* case EBUSY: */
+  /*   return thrd_timedout; */
+  /* default: */
+  /*   return thrd_error; */
+  /* } */
 
 }
 
