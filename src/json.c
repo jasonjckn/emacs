@@ -186,7 +186,7 @@ int pthread_mutex_timedlock( pthread_mutex_t *restrict mtx,
       }
 
     dur.tv_sec = 0;
-    dur.tv_nsec = 1000000;
+    dur.tv_nsec = 1;
     nanosleep(&dur, NULL);
   }
 
