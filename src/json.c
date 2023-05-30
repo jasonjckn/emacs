@@ -25,6 +25,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/time.h>
 
 #include <jansson.h>
 #include <string.h>
@@ -168,51 +169,94 @@ init_json_functions (void)
 
 #endif /* WINDOWSNT */
 
+// we test every 1 milliseconds
+#define TIMESLICE 1000000L
 
-int pthread_mutex_timedlock( pthread_mutex_t *restrict mtx,
-			     const struct timespec *restrict ts) {
+/**
+ * Check to see if we have gone beyond the appointed time.
+ *
+ * @param ts     The target time
+ * @param nextInterval
+ *               The return next wait interval if this still has not timed out.
+ *
+ * @return true if we have gone beyond the target time, false otherwise.
+ */
+bool
+checkTimeOut (const struct timespec *ts, long &nextInterval)
+{
+  struct timespec currentTime;
+  clock_gettime (CLOCK_REALTIME, &currentTime); // get the current time
 
-  int rc;
-  struct timespec cur, dur;
+  // if target time seconds are greater, we have not timed out
+  if (ts->tv_sec > currentTime.tv_sec)
+    {
+      return false;
+    }
+  // if the seconds are the same, we calculate the delta
+  // and check
+  if (ts->tv_sec == currentTime.tv_sec)
+    {
+      // calculate unconditionally, we use the sign to then determine if this
+      // was a time out
+      nextInterval = ts->tv_nsec - currentTime.tv_nsec;
+      if (nextInterval < 0)
+	{
+	  return true; // a negative result is a timeout
+	}
+      // we never wait longer than 10 milliseconds
+      // nextInterval = std::min (nextInterval, TIMESLICE);
+      if (nextInterval > TIMESLICE)
+	{
+	  nextInterval = TIMESLICE;
+	}
+      return false;
+    }
 
-  /* Try to acquire the lock and, if we fail, sleep for 5ms. */
-  while ((rc = pthread_mutex_trylock (mtx)) == EBUSY) {
-    timespec_get(&cur, TIME_UTC);
+  // the target seconds are less, so we are done
+  return true;
+}
 
-    if ((cur.tv_sec > ts->tv_sec) || ((cur.tv_sec == ts->tv_sec) && (cur.tv_nsec >= ts->tv_nsec)))
-      {
-	break;
-      }
+/**
+ * Fix for systems that don't have pthread_mutex_timedlock
+ *
+ * @param mutex  The mutex we're waiting on
+ * @param abs_timeout
+ *               The time timeout value
+ *
+ * @return zero or an error code.
+ */
+int
+pthread_mutex_timedlock (pthread_mutex_t *mutex,
+			 const struct timespec *abs_timeout)
+{
+  int pthread_rc;
 
-    dur.tv_sec = ts->tv_sec - cur.tv_sec;
-    dur.tv_nsec = ts->tv_nsec - cur.tv_nsec;
-    if (dur.tv_nsec < 0)
-      {
-	dur.tv_sec--;
-	dur.tv_nsec += 1000000000;
-      }
+  long waitInterval;
 
-    if ((dur.tv_sec != 0) || (dur.tv_nsec > 5000000))
-      {
-	dur.tv_sec = 0;
-	dur.tv_nsec = 5000000;
-      }
+  // we might already be timed out
+  if (checkTimeOut (abs_timeout, waitInterval))
+    {
+      return ETIMEDOUT;
+    }
 
-    nanosleep(&dur, NULL);
-  }
+  while ((pthread_rc = pthread_mutex_trylock (mutex)) == EBUSY)
+    {
+      struct timespec ts;
+      ts.tv_sec = 0;
+      ts.tv_nsec = waitInterval;
 
-  return rc;
+      struct timespec slept;
+      nanosleep (&ts, &slept);
 
-  /* switch (rc) { */
-  /* case 0: */
-  /*   return thrd_success; */
-  /* case ETIMEDOUT: */
-  /* case EBUSY: */
-  /*   return thrd_timedout; */
-  /* default: */
-  /*   return thrd_error; */
-  /* } */
+      // check for a timeout immediately, this also gives us our
+      // next wait interval
+      if (checkTimeOut (abs_timeout, waitInterval))
+	{
+	  return ETIMEDOUT;
+	}
+    }
 
+  return pthread_rc;
 }
 
 /* We install a custom allocator so that we can avoid objects larger
