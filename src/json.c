@@ -168,6 +168,31 @@ init_json_functions (void)
 
 #endif /* WINDOWSNT */
 
+int pthread_mutex_timedlock( pthread_mutex_t *restrict mtx,
+                             const struct timespec *restrict ts) {
+
+  int rc;
+  struct timespec cur, dur;
+
+  /* Try to acquire the lock and, if we fail, sleep for 5ms. */
+  while ((rc = pthread_mutex_trylock (mtx)) == EBUSY) {
+    timespec_get(&cur, TIME_UTC);
+
+    if ((cur.tv_sec > ts->tv_sec)
+	|| ((cur.tv_sec == ts->tv_sec) && (cur.tv_nsec >= ts->tv_nsec)))
+      {
+	rc = ETIMEDOUT;
+	break;
+      }
+
+    dur.tv_sec = 0;
+    dur.tv_nsec = 1000000;
+    nanosleep(&dur, NULL);
+  }
+
+  return rc;
+}
+
 /* We install a custom allocator so that we can avoid objects larger
    than PTRDIFF_MAX.  Such objects wouldn't play well with the rest of
    Emacs's codebase, which generally uses ptrdiff_t for sizes and
