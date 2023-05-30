@@ -182,7 +182,7 @@ init_json_functions (void)
  * @return true if we have gone beyond the target time, false otherwise.
  */
 bool
-checkTimeOut (const struct timespec *ts, long &nextInterval)
+checkTimeOut (const struct timespec *ts, long *nextInterval)
 {
   struct timespec currentTime;
   clock_gettime (CLOCK_REALTIME, &currentTime); // get the current time
@@ -198,16 +198,16 @@ checkTimeOut (const struct timespec *ts, long &nextInterval)
     {
       // calculate unconditionally, we use the sign to then determine if this
       // was a time out
-      nextInterval = ts->tv_nsec - currentTime.tv_nsec;
-      if (nextInterval < 0)
+      *nextInterval = ts->tv_nsec - currentTime.tv_nsec;
+      if (*nextInterval < 0)
 	{
 	  return true; // a negative result is a timeout
 	}
       // we never wait longer than 10 milliseconds
       // nextInterval = std::min (nextInterval, TIMESLICE);
-      if (nextInterval > TIMESLICE)
+      if (*nextInterval > TIMESLICE)
 	{
-	  nextInterval = TIMESLICE;
+	  *nextInterval = TIMESLICE;
 	}
       return false;
     }
@@ -234,7 +234,7 @@ pthread_mutex_timedlock (pthread_mutex_t *mutex,
   long waitInterval;
 
   // we might already be timed out
-  if (checkTimeOut (abs_timeout, waitInterval))
+  if (checkTimeOut (abs_timeout, &waitInterval))
     {
       return ETIMEDOUT;
     }
