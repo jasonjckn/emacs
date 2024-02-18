@@ -1,6 +1,6 @@
 /* Updating of data structures for redisplay.
 
-Copyright (C) 1985-1988, 1993-1995, 1997-2022 Free Software Foundation,
+Copyright (C) 1985-1988, 1993-1995, 1997-2024 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -3748,6 +3748,14 @@ update_window (struct window *w, bool force_p)
 	      }
 	  }
 
+      /* If the window doesn't display its mode line, make sure the
+         corresponding row of the current glyph matrix is disabled, so
+         that if and when the mode line is displayed again, it will be
+         cleared and completely redrawn.  */
+      if (!window_wants_mode_line (w))
+	SET_MATRIX_ROW_ENABLED_P (w->current_matrix,
+				  w->current_matrix->nrows - 1, false);
+
       /* Was display preempted?  */
       paused_p = row < end;
 
@@ -5008,6 +5016,10 @@ update_frame_1 (struct frame *f, bool force_p, bool inhibit_id_p,
 		}
 	    }
 	  while (row > top && col == 0);
+
+	  /* We exit the loop with COL at the glyph _after_ the last one.  */
+	  if (col > 0)
+	    col--;
 
 	  /* Make sure COL is not out of range.  */
 	  if (col >= FRAME_CURSOR_X_LIMIT (f))

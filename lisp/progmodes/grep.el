@@ -1,6 +1,6 @@
 ;;; grep.el --- run `grep' and display the results  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1987, 1993-1999, 2001-2022 Free Software
+;; Copyright (C) 1985-1987, 1993-1999, 2001-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
@@ -1236,9 +1236,10 @@ to specify a command to run.
 If CONFIRM is non-nil, the user will be given an opportunity to edit the
 command before it's run.
 
-Interactively, the user can use the \\`M-c' command while entering
-the regexp to indicate whether the grep should be case sensitive
-or not."
+Interactively, the user can use \
+\\<read-regexp-map>\\[read-regexp-toggle-case-fold] \
+while entering the regexp
+to indicate whether the grep should be case sensitive or not."
   (interactive
    (progn
      (grep-compute-defaults)
@@ -1254,6 +1255,10 @@ or not."
 					  nil default-directory t))
 		(confirm (equal current-prefix-arg '(4))))
 	   (list regexp files dir confirm))))))
+  ;; If called non-interactively, also compute the defaults if we
+  ;; haven't already.
+  (unless grep-find-template
+    (grep-compute-defaults))
   (when (and (stringp regexp) (> (length regexp) 0))
     (unless (and dir (file-accessible-directory-p dir))
       (setq dir default-directory))

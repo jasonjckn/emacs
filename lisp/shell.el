@@ -1,6 +1,6 @@
 ;;; shell.el --- specialized comint.el for running the shell -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1993-1997, 2000-2022 Free Software Foundation,
+;; Copyright (C) 1988, 1993-1997, 2000-2024 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Olin Shivers <shivers@cs.cmu.edu>
@@ -327,9 +327,8 @@ and syntax highlighting is set up with `sh-mode'.  In addition to
 buffer as the current buffer after its setup is done.  This can
 be used to further customize fontification and other behavior of
 the indirect buffer."
-  :type 'boolean
+  :type 'hook
   :group 'shell
-  :safe 'booleanp
   :version "29.1")
 
 (defcustom shell-highlight-undef-enable nil
@@ -395,11 +394,9 @@ Useful for shells like zsh that has this feature."
 
 (defvar-keymap shell-repeat-map
   :doc "Keymap to repeat shell key sequences.  Used in `repeat-mode'."
+  :repeat t
   "C-f" #'shell-forward-command
   "C-b" #'shell-backward-command)
-
-(put #'shell-forward-command 'repeat-map 'shell-repeat-map)
-(put #'shell-backward-command 'repeat-map 'shell-repeat-map)
 
 (defcustom shell-mode-hook '()
   "Hook for customizing Shell mode."
@@ -1162,6 +1159,7 @@ line output and parses it to form the new directory stack."
          (dlsl nil)
          (pos 0)
          (ds nil))
+    (setq dls (string-trim-right dls "[ ]+"))
     ;; Split the dirlist into whitespace and non-whitespace chunks.
     ;; dlsl will be a reversed list of tokens.
     (while (string-match "\\(\\S-+\\|\\s-+\\)" dls pos)
@@ -1589,15 +1587,15 @@ Returns t if successful."
   "Whether to inhibit cache for fontifying shell commands in remote buffers.
 When fontification of non-existent commands is enabled in a
 remote shell buffer, use a cache to speed up searching for
-executable files on the remote machine.  This options is used to
-control expiry of this cache.  See `remote-file-name-inhibit-cache'
-for description."
+executable files on the remote machine.  This option controls
+expiry of the cache.  See `remote-file-name-inhibit-cache' for
+a description of the possible options."
   :group 'faces
   :type '(choice
-          (const :tag "Do not inhibit file name cache" nil)
-          (const :tag "Do not use file name cache" t)
-          (integer :tag "Do not use file name cache"
-                   :format "Do not use file name cache older than %v seconds"
+          (const :tag "Do not cache remote executables" t)
+          (const :tag "Cache remote executables" nil)
+          (integer :tag "Cache remote executables with expiration"
+                   :format "Cache expiry in seconds: %v"
                    :value 10))
   :version "29.1")
 
@@ -1610,7 +1608,7 @@ EXECUTABLES is a hash table with keys being the base-names of
 executable files.
 
 Cache expiry is controlled by the user option
-`remote-file-name-inhibit-cache'.")
+`shell-highlight-undef-remote-file-name-inhibit-cache'.")
 
 (defvar shell--highlight-undef-face 'shell-highlight-undef-defined-face)
 

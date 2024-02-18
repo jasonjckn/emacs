@@ -1,6 +1,6 @@
 ;;; composite.el --- support character composition  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2024 Free Software Foundation, Inc.
 
 ;; Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
 ;;   2008, 2009, 2010, 2011
@@ -861,7 +861,7 @@ and the second is a glyph for a variation selector."
 ;; handled in font_range, we end up choosing the Emoji presentation
 ;; rather than the Text presentation.
 (let ((elt '([".." 1 compose-gstring-for-variation-glyph])))
-  (set-char-table-range composition-function-table '(#xFE00 . #xFE0E) elt)
+  (set-char-table-range composition-function-table '(#xFE00 . #xFE0D) elt)
   (set-char-table-range composition-function-table '(#xE0100 . #xE01EF) elt))
 
 (defun auto-compose-chars (func from to font-object string direction)

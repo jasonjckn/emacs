@@ -1,6 +1,6 @@
 ;;; help.el --- help commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2022 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -76,6 +76,7 @@ buffer.")
   "C-n"  #'view-emacs-news
   "C-o"  #'describe-distribution
   "C-p"  #'view-emacs-problems
+  "C-q"  #'help-quick-toggle
   "C-s"  #'search-forward-help-for-help
   "C-t"  #'view-emacs-todo
   "C-w"  #'describe-no-warranty
@@ -116,7 +117,7 @@ buffer.")
   "v"    #'describe-variable
   "w"    #'where-is
   "x"    #'describe-command
-  "q"    #'help-quit-or-quick)
+  "q"    #'help-quit)
 
 (define-key global-map (char-to-string help-char) 'help-command)
 (define-key global-map [help] 'help-command)
@@ -170,7 +171,10 @@ buffer.")
 
 ;; Inspired by a mg fork (https://github.com/troglobit/mg)
 (defun help-quick ()
-  "Display a quick-help buffer."
+  "Display a quick-help buffer showing popular commands and their bindings.
+The window showing quick-help can be toggled using \\[help-quick-toggle].
+You can click on a key binding shown in the quick-help buffer to display
+the documentation of the command bound to that key sequence."
   (interactive)
   (with-current-buffer (get-buffer-create "*Quick Help*")
     (let ((inhibit-read-only t) (padding 2) blocks)
@@ -243,7 +247,21 @@ buffer.")
       ;; ... and shrink it immediately.
       (fit-window-to-buffer))
     (message
-     (substitute-command-keys "Toggle the quick help buffer using \\[help-quit-or-quick]."))))
+     (substitute-command-keys "Toggle display of quick-help buffer using \\[help-quick-toggle]."))))
+
+(defun help-quick-toggle ()
+  "Toggle display of a window showing popular commands and their bindings.
+This toggles on and off the display of the quick-help buffer, which shows
+popular commands and their bindings as produced by `help-quick'.
+You can click on a key binding shown in the quick-help buffer to display
+the documentation of the command bound to that key sequence."
+  (interactive)
+  (if (and-let* ((window (get-buffer-window "*Quick Help*")))
+        (quit-window t window))
+      ;; Clear the message we may have gotten from `C-h' and then
+      ;; waiting before hitting `q'.
+      (message "")
+    (help-quick)))
 
 (defalias 'cheat-sheet #'help-quick)
 
@@ -251,21 +269,6 @@ buffer.")
   "Just exit from the Help command's command loop."
   (interactive)
   nil)
-
-(defun help-quit-or-quick ()
-  "Call `help-quit' or  `help-quick' depending on the context."
-  (interactive)
-  (cond
-   (help-buffer-under-preparation
-    ;; FIXME: There should be a better way to detect if we are in the
-    ;;        help command loop.
-    (help-quit))
-   ((and-let* ((window (get-buffer-window "*Quick Help*")))
-      (quit-window t window)
-      ;; Clear the message we may have gotten from `C-h' and then
-      ;; waiting before hitting `q'.
-      (message "")))
-   ((help-quick))))
 
 (defvar help-return-method nil
   "What to do to \"exit\" the help buffer.
@@ -416,7 +419,7 @@ Do not call this in the scope of `with-help-window'."
        ("describe-package" "Describe a specific Emacs package")
        ""
        ("help-with-tutorial" "Start the Emacs tutorial")
-       ("help-quick-or-quit" "Display the quick help buffer.")
+       ("help-quick-toggle" "Display the quick help buffer.")
        ("view-echo-area-messages"
         "Show recent messages (from echo area)")
        ("view-lossage" ,(format "Show last %d input keystrokes (lossage)"
@@ -693,6 +696,10 @@ To record all your input, use `open-dribble-file'."
       (with-current-buffer standard-output
 	(goto-char (point-min))
 	(let ((comment-start ";; ")
+              ;; Prevent 'comment-indent' from handling a single
+              ;; semicolon as the beginning of a comment.
+              (comment-start-skip ";; ")
+              (comment-use-syntax nil)
               (comment-column 24))
           (while (not (eobp))
             (comment-indent)
@@ -717,6 +724,12 @@ Return nil if KEYS is nil."
 
 (defcustom describe-bindings-outline t
   "Non-nil enables outlines in the output buffer of `describe-bindings'."
+  :type 'boolean
+  :group 'help
+  :version "29.1")
+
+(defcustom describe-bindings-show-prefix-commands nil
+  "Non-nil means show prefix commands in the output of `describe-bindings'."
   :type 'boolean
   :group 'help
   :version "29.1")
@@ -1443,10 +1456,11 @@ Otherwise, return a new string."
         (buffer-string)))))
 
 (defun substitute-quotes (string)
-  "Substitute quote characters for display.
+  "Substitute quote characters in STRING for display.
 Each grave accent \\=` is replaced by left quote, and each
-apostrophe \\=' is replaced by right quote.  Left and right quote
-characters are specified by `text-quoting-style'."
+apostrophe \\=' is replaced by right quote.  Which left and right
+quote characters to use is determined by the variable
+`text-quoting-style'."
   (cond ((eq (text-quoting-style) 'curve)
          (string-replace "`" "‘"
                          (string-replace "'" "’" string)))
@@ -1473,7 +1487,7 @@ If PREFIX is non-nil, mention only keys that start with PREFIX.
 If TITLE is non-nil, is a string to insert at the beginning.
 TITLE should not end with a colon or a newline; we supply that.
 
-If NOMENU is non-nil, then omit menu-bar commands.
+If NO-MENU is non-nil, then omit menu-bar commands.
 
 If TRANSL is non-nil, the definitions are actually key
 translations so print strings and vectors differently.
@@ -1703,6 +1717,7 @@ in `describe-map-tree'."
               (setq vect (cdr vect))
               (setq end (caar vect))))
           (when (or (not (eq start end))
+                    describe-bindings-show-prefix-commands
                     ;; Don't output keymap prefixes.
                     (not (keymapp definition)))
             (when first

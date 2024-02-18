@@ -1,8 +1,8 @@
 ;;; comp-cstr.el --- native compiler constraint library -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2024 Free Software Foundation, Inc.
 
-;; Author: Andrea Corallo <akrl@sdf.org>
+;; Author: Andrea Corallo <acorallo@gnu.org>
 ;; Keywords: lisp
 ;; Package: emacs
 
@@ -203,6 +203,8 @@ Return them as multiple value."
                t)
               ((and (not (symbolp x)) (symbolp y))
                nil)
+              ((or (consp x) (consp y)
+                   nil))
               (t
                (< (sxhash-equal x)
                   (sxhash-equal y)))))))
@@ -483,7 +485,7 @@ Return them as multiple value."
 ;;; Union specific code.
 
 (defun comp-cstr-union-homogeneous-no-range (dst &rest srcs)
-  "As `comp-cstr-union' but escluding the irange component.
+  "As `comp-cstr-union' but excluding the irange component.
 All SRCS constraints must be homogeneously negated or non-negated."
 
   ;; Type propagation.
@@ -690,7 +692,7 @@ DST is returned."
             (cl-loop
              for val in (valset src)
              ;; If (member value) is subtypep of all other sources then
-             ;; is good to be colleted.
+             ;; is good to be collected.
              when (cl-every (lambda (s)
                               (or (memql val (valset s))
                                   (cl-some (lambda (type)

@@ -1,6 +1,6 @@
 /* Interface definitions for display code.
 
-Copyright (C) 1985, 1993-1994, 1997-2022 Free Software Foundation, Inc.
+Copyright (C) 1985, 1993-1994, 1997-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -107,7 +107,7 @@ typedef struct
 {
   int width, height;		/* size of image */
   char *data;			/* pointer to image data */
-  int bytes_per_line;		/* accelarator to next line */
+  int bytes_per_line;		/* accelerator to next line */
   int bits_per_pixel;		/* bits per pixel (ZPixmap) */
 } *Emacs_Pix_Container;
 typedef Emacs_Pix_Container Emacs_Pixmap;
@@ -1712,7 +1712,7 @@ struct face
 
   /* Non-zero means characters in this face have a box of that
      thickness around them. Vertical (left and right) and horizontal
-     (top and bottom) borders size can be set separatedly using an
+     (top and bottom) borders size can be set separately using an
      associated list of two ints in the form
      (vertical_size . horizontal_size). In case one of the value is
      negative, its absolute value indicates the thickness, and the
@@ -2335,21 +2335,20 @@ struct it
      with which display_string was called.  */
   ptrdiff_t end_charpos;
 
-  /* Alternate begin position of the buffer that may be used to
-     optimize display (see the SET_WITH_NARROWED_BEGV macro).  */
-  ptrdiff_t narrowed_begv;
+  /* Alternate begin and end positions of the buffer that are used to
+     optimize display of buffers with long lines.  These two fields
+     hold the return value of the 'get_medium_narrowing_begv' and
+     'get_medium_narrowing_zv' functions.  */
+  ptrdiff_t medium_narrowing_begv;
+  ptrdiff_t medium_narrowing_zv;
 
-  /* Alternate end position of the buffer that may be used to
-     optimize display.  */
-  ptrdiff_t narrowed_zv;
-
-  /* Begin position of the buffer for the locked narrowing around
-     low-level hooks.  */
-  ptrdiff_t locked_narrowing_begv;
-
-  /* End position of the buffer for the locked narrowing around
-     low-level hooks.  */
-  ptrdiff_t locked_narrowing_zv;
+  /* Alternate begin and end positions of the buffer that are used for
+     labeled narrowings around low-level hooks in buffers with long
+     lines.  These two fields hold the return value of the
+     'get_large_narrowing_begv' and 'get_large_narrowing_zv'
+     functions.  */
+  ptrdiff_t large_narrowing_begv;
+  ptrdiff_t large_narrowing_zv;
 
   /* C string to iterate over.  Non-null means get characters from
      this string, otherwise characters are read from current_buffer
@@ -3411,11 +3410,9 @@ void mark_window_display_accurate (Lisp_Object, bool);
 void redisplay_preserve_echo_area (int);
 void init_iterator (struct it *, struct window *, ptrdiff_t,
                     ptrdiff_t, struct glyph_row *, enum face_id);
-ptrdiff_t get_narrowed_begv (struct window *, ptrdiff_t);
-ptrdiff_t get_narrowed_zv (struct window *, ptrdiff_t);
-ptrdiff_t get_closer_narrowed_begv (struct window *, ptrdiff_t);
-ptrdiff_t get_locked_narrowing_begv (ptrdiff_t);
-ptrdiff_t get_locked_narrowing_zv (ptrdiff_t);
+ptrdiff_t get_small_narrowing_begv (struct window *, ptrdiff_t);
+ptrdiff_t get_large_narrowing_begv (ptrdiff_t);
+ptrdiff_t get_large_narrowing_zv (ptrdiff_t);
 void init_iterator_to_row_start (struct it *, struct window *,
                                  struct glyph_row *);
 void start_display (struct it *, struct window *, struct text_pos);

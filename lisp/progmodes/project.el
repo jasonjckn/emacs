@@ -1,11 +1,11 @@
 ;;; project.el --- Operations on the current project  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
-;; Version: 0.9.2
+;; Copyright (C) 2015-2024 Free Software Foundation, Inc.
+;; Version: 0.9.8
 ;; Package-Requires: ((emacs "26.1") (xref "1.4.0"))
 
-;; This is a GNU ELPA :core package.  Avoid using functionality that
-;; not compatible with the version of Emacs recorded above.
+;; This is a GNU ELPA :core package.  Avoid functionality that is not
+;; compatible with the version of Emacs recorded above.
 
 ;; This file is part of GNU Emacs.
 
@@ -24,11 +24,6 @@
 
 ;;; Commentary:
 
-;; NOTE: The project API is still experimental and can change in major,
-;; backward-incompatible ways.  Everyone is encouraged to try it, and
-;; report to us any problems or use cases we hadn't anticipated, by
-;; sending an email to emacs-devel, or `M-x report-emacs-bug'.
-;;
 ;; This file contains generic infrastructure for dealing with
 ;; projects, some utility functions, and commands using that
 ;; infrastructure.
@@ -174,6 +169,7 @@
 ;;; Code:
 
 (require 'cl-generic)
+(require 'cl-lib)
 (require 'seq)
 (eval-when-compile (require 'subr-x))
 
@@ -400,8 +396,8 @@ the buffer's value of `default-directory'."
 
 (defcustom project-vc-ignores nil
   "List of patterns to add to `project-ignores'."
-  :type '(repeat string)
-  :safe #'listp)
+  :type '(repeat string))
+;;;###autoload(put 'project-vc-ignores 'safe-local-variable #'listp)
 
 (defcustom project-vc-merge-submodules t
   "Non-nil to consider submodules part of the parent project.
@@ -410,14 +406,14 @@ After changing this variable (using Customize or .dir-locals.el)
 you might have to restart Emacs to see the effect."
   :type 'boolean
   :version "28.1"
-  :package-version '(project . "0.2.0")
-  :safe #'booleanp)
+  :package-version '(project . "0.2.0"))
+;;;###autoload(put 'project-vc-merge-submodules 'safe-local-variable #'booleanp)
 
 (defcustom project-vc-include-untracked t
   "When non-nil, the VC-aware project backend includes untracked files."
   :type 'boolean
-  :version "29.1"
-  :safe #'booleanp)
+  :version "29.1")
+;;;###autoload(put 'project-vc-include-untracked 'safe-local-variable #'booleanp)
 
 (defcustom project-vc-name nil
   "When non-nil, the name of the current VC-aware project.
@@ -427,8 +423,8 @@ its name, is by setting this in .dir-locals.el."
   :type '(choice (const :tag "Default to the base name" nil)
                  (string :tag "Custom name"))
   :version "29.1"
-  :package-version '(project . "0.9.0")
-  :safe #'stringp)
+  :package-version '(project . "0.9.0"))
+;;;###autoload(put 'project-vc-name 'safe-local-variable #'stringp)
 
 ;; Not using regexps because these wouldn't work in Git pathspecs, in
 ;; case we decide we need to be able to list nested projects.
@@ -455,8 +451,8 @@ In either case, their behavior will still obey the relevant
 variables, such as `project-vc-ignores' or `project-vc-name'."
   :type '(repeat string)
   :version "29.1"
-  :package-version '(project . "0.9.0")
-  :safe (lambda (val) (and (listp val) (cl-every #'stringp val))))
+  :package-version '(project . "0.9.0"))
+;;;###autoload(put 'project-vc-extra-root-markers 'safe-local-variable (lambda (val) (and (listp val) (not (memq nil (mapcar #'stringp val))))))
 
 ;; FIXME: Using the current approach, major modes are supposed to set
 ;; this variable to a buffer-local value.  So we don't have access to
@@ -493,30 +489,43 @@ files related to the current buffer.
 The directory names should be absolute.  Used in the VC-aware
 project backend implementation of `project-external-roots'.")
 
+(defvar project-vc-backend-markers-alist
+  `((Git . ".git")
+    (Hg . ".hg")
+    (Bzr . ".bzr")
+    ;; See the comment above `vc-svn-admin-directory' for why we're
+    ;; duplicating the definition.
+    (SVN . ,(if (and (memq system-type '(cygwin windows-nt ms-dos))
+                     (getenv "SVN_ASP_DOT_NET_HACK"))
+                "_svn"
+              ".svn"))
+    (DARCS . "_darcs")
+    (Fossil . ".fslckout")
+    (Got . ".got"))
+  "Associative list assigning root markers to VC backend symbols.
+
+See `project-vc-extra-root-markers' for the marker value format.")
+
 (defun project-try-vc (dir)
-  (defvar vc-svn-admin-directory)
-  (require 'vc-svn)
   ;; FIXME: Learn to invalidate when the value of
   ;; `project-vc-merge-submodules' or `project-vc-extra-root-markers'
   ;; changes.
   (or (vc-file-getprop dir 'project-vc)
-      (let* ((backend-markers-alist `((Git . ".git")
-                                      (Hg . ".hg")
-                                      (Bzr . ".bzr")
-                                      (SVN . ,vc-svn-admin-directory)
-                                      (DARCS . "_darcs")
-                                      (Fossil . ".fslckout")))
-             (backend-markers
+      (let* ((backend-markers
               (delete
                nil
                (mapcar
-                (lambda (b) (assoc-default b backend-markers-alist))
+                (lambda (b) (assoc-default b project-vc-backend-markers-alist))
                 vc-handled-backends)))
              (marker-re
-              (mapconcat
-               (lambda (m) (format "\\(%s\\)" (wildcard-to-regexp m)))
-               (append backend-markers project-vc-extra-root-markers)
-               "\\|"))
+              (concat
+               "\\`"
+               (mapconcat
+                (lambda (m) (format "\\(%s\\)" (wildcard-to-regexp m)))
+                (append backend-markers
+                        (project--value-in-dir 'project-vc-extra-root-markers dir))
+                "\\|")
+               "\\'"))
              (locate-dominating-stop-dir-regexp
               (or vc-ignore-dir-regexp locate-dominating-stop-dir-regexp))
              last-matches
@@ -525,17 +534,20 @@ project backend implementation of `project-external-roots'.")
                dir
                (lambda (d)
                  ;; Maybe limit count to 100 when we can drop Emacs < 28.
-                 (setq last-matches (directory-files d nil marker-re t)))))
+                 (setq last-matches
+                       (condition-case nil
+                           (directory-files d nil marker-re t)
+                         (file-missing nil))))))
              (backend
               (cl-find-if
                (lambda (b)
-                 (member (assoc-default b backend-markers-alist)
+                 (member (assoc-default b project-vc-backend-markers-alist)
                          last-matches))
                vc-handled-backends))
              project)
         (when (and
                (eq backend 'Git)
-               project-vc-merge-submodules
+               (project--vc-merge-submodules-p root)
                (project--submodule-p root))
           (let* ((parent (file-name-directory (directory-file-name root))))
             (setq root (vc-call-backend 'Git 'root parent))))
@@ -582,7 +594,7 @@ project backend implementation of `project-external-roots'.")
 (cl-defmethod project-files ((project (head vc)) &optional dirs)
   (mapcan
    (lambda (dir)
-     (let ((ignores project-vc-ignores)
+     (let ((ignores (project--value-in-dir 'project-vc-ignores (nth 2 project)))
            (backend (cadr project)))
        (when backend
          (require (intern (concat "vc-" (downcase (symbol-name backend))))))
@@ -608,13 +620,16 @@ project backend implementation of `project-external-roots'.")
   (defvar vc-git-use-literal-pathspecs)
   (pcase backend
     (`Git
-     (let ((default-directory (expand-file-name (file-name-as-directory dir)))
-           (args '("-z"))
-           (vc-git-use-literal-pathspecs nil)
-           files)
+     (let* ((default-directory (expand-file-name (file-name-as-directory dir)))
+            (args '("-z"))
+            (vc-git-use-literal-pathspecs nil)
+            (include-untracked (project--value-in-dir
+                                'project-vc-include-untracked
+                                dir))
+            files)
        (setq args (append args
                           '("-c" "--exclude-standard")
-                          (and project-vc-include-untracked '("-o"))))
+                          (and include-untracked '("-o"))))
        (when extra-ignores
          (setq args (append args
                             (cons "--"
@@ -647,7 +662,7 @@ project backend implementation of `project-external-roots'.")
               (split-string
                (apply #'vc-git--run-command-string nil "ls-files" args)
                "\0" t)))
-       (when project-vc-merge-submodules
+       (when (project--vc-merge-submodules-p default-directory)
          ;; Unfortunately, 'ls-files --recurse-submodules' conflicts with '-o'.
          (let* ((submodules (project--git-submodules))
                 (sub-files
@@ -665,10 +680,13 @@ project backend implementation of `project-external-roots'.")
        ;; XXX: Better solutions welcome, but this seems cheap enough.
        (delete-consecutive-dups files)))
     (`Hg
-     (let ((default-directory (expand-file-name (file-name-as-directory dir)))
-           (args (list (concat "-mcard" (and project-vc-include-untracked "u"))
-                       "--no-status"
-                       "-0")))
+     (let* ((default-directory (expand-file-name (file-name-as-directory dir)))
+            (include-untracked (project--value-in-dir
+                                'project-vc-include-untracked
+                                dir))
+            (args (list (concat "-mcard" (and include-untracked "u"))
+                        "--no-status"
+                        "-0")))
        (when extra-ignores
          (setq args (nconc args
                            (mapcan
@@ -680,6 +698,11 @@ project backend implementation of `project-external-roots'.")
          (mapcar
           (lambda (s) (concat default-directory s))
           (split-string (buffer-string) "\0" t)))))))
+
+(defun project--vc-merge-submodules-p (dir)
+  (project--value-in-dir
+   'project-vc-merge-submodules
+   dir))
 
 (defun project--git-submodules ()
   ;; 'git submodule foreach' is much slower.
@@ -722,7 +745,7 @@ project backend implementation of `project-external-roots'.")
          (condition-case nil
              (vc-call-backend backend 'ignore-completion-table root)
            (vc-not-supported () nil)))))
-     project-vc-ignores
+     (project--value-in-dir 'project-vc-ignores root)
      (mapcar
       (lambda (dir)
         (concat dir "/"))
@@ -753,9 +776,16 @@ DIRS must contain directory names."
   ;; Sidestep the issue of expanded/abbreviated file names here.
   (cl-set-difference files dirs :test #'file-in-directory-p))
 
+(defun project--value-in-dir (var dir)
+  (with-temp-buffer
+    (setq default-directory dir)
+    (let ((enable-local-variables :all))
+      (hack-dir-local-variables-non-file-buffer))
+    (symbol-value var)))
+
 (cl-defmethod project-buffers ((project (head vc)))
   (let* ((root (expand-file-name (file-name-as-directory (project-root project))))
-         (modules (unless (or project-vc-merge-submodules
+         (modules (unless (or (project--vc-merge-submodules-p root)
                               (project--submodule-p root))
                     (mapcar
                      (lambda (m) (format "%s%s/" root m))
@@ -770,8 +800,8 @@ DIRS must contain directory names."
         (push buf bufs)))
     (nreverse bufs)))
 
-(cl-defmethod project-name ((_project (head vc)))
-  (or project-vc-name
+(cl-defmethod project-name ((project (head vc)))
+  (or (project--value-in-dir 'project-vc-name (project-root project))
       (cl-call-next-method)))
 
 
@@ -1019,7 +1049,16 @@ by the user at will."
          (_ (when included-cpd
               (setq substrings (cons "./" substrings))))
          (new-collection (project--file-completion-table substrings))
-         (relname (let ((history-add-new-input nil))
+         (abbr-cpd (abbreviate-file-name common-parent-directory))
+         (abbr-cpd-length (length abbr-cpd))
+         (relname (cl-letf ((history-add-new-input nil)
+                            ((symbol-value hist)
+                             (mapcan
+                              (lambda (s)
+                                (and (string-prefix-p abbr-cpd s)
+                                     (not (eq abbr-cpd-length (length s)))
+                                     (list (substring s abbr-cpd-length))))
+                              (symbol-value hist))))
                     (project--completing-read-strict prompt
                                                      new-collection
                                                      predicate
@@ -1172,7 +1211,10 @@ To continue searching for the next match, use the
 command \\[fileloop-continue]."
   (interactive "sSearch (regexp): ")
   (fileloop-initialize-search
-   regexp (project-files (project-current t)) 'default)
+   regexp
+   ;; XXX: See the comment in project-query-replace-regexp.
+   (cl-delete-if-not #'file-regular-p (project-files (project-current t)))
+   'default)
   (fileloop-continue))
 
 ;;;###autoload
@@ -1321,18 +1363,33 @@ By default, all project buffers are listed except those whose names
 start with a space (which are for internal use).  With prefix argument
 ARG, show only buffers that are visiting files."
   (interactive "P")
-  (let ((pr (project-current t)))
+  (let* ((pr (project-current t))
+         (buffer-list-function
+          (lambda ()
+            (seq-filter
+             (lambda (buffer)
+               (let ((name (buffer-name buffer))
+                     (file (buffer-file-name buffer)))
+                 (and (or (not (string= (substring name 0 1) " "))
+                          file)
+                      (not (eq buffer (current-buffer)))
+                      (or file (not Buffer-menu-files-only)))))
+             (project-buffers pr)))))
     (display-buffer
      (if (version< emacs-version "29.0.50")
-         (let ((buf (list-buffers-noselect arg (project-buffers pr))))
+         (let ((buf (list-buffers-noselect
+                     arg (with-current-buffer
+                             (get-buffer-create "*Buffer List*")
+                           (let ((Buffer-menu-files-only arg))
+                             (funcall buffer-list-function))))))
            (with-current-buffer buf
              (setq-local revert-buffer-function
                          (lambda (&rest _ignored)
-                           (list-buffers--refresh (project-buffers pr))
+                           (list-buffers--refresh
+                            (funcall buffer-list-function))
                            (tabulated-list-print t))))
            buf)
-       (list-buffers-noselect
-        arg nil (lambda (buf) (memq buf (project-buffers pr))))))))
+       (list-buffers-noselect arg buffer-list-function)))))
 
 (defcustom project-kill-buffer-conditions
   '(buffer-file-name    ; All file-visiting buffers are included.
@@ -1391,8 +1448,8 @@ Used by `project-kill-buffers'."
   :type 'boolean
   :version "29.1"
   :group 'project
-  :package-version '(project . "0.8.2")
-  :safe #'booleanp)
+  :package-version '(project . "0.8.2"))
+;;;###autoload(put 'project-kill-buffers-display-buffer-list 'safe-local-variable #'booleanp)
 
 (defun project--buffer-check (buf conditions)
   "Check if buffer BUF matches any element of the list CONDITIONS.
@@ -1697,11 +1754,12 @@ invoked immediately without any dispatch menu."
           (symbol :tag "Single command")))
 
 (defcustom project-switch-use-entire-map nil
-  "Make `project-switch-project' use entire `project-prefix-map'.
+  "Whether `project-switch-project' will use the entire `project-prefix-map'.
 If nil, `project-switch-project' will only recognize commands
-listed in `project-switch-commands' and signal an error when
-others are invoked.  Otherwise, all keys in `project-prefix-map'
-are legal even if they aren't listed in the dispatch menu."
+listed in `project-switch-commands', and will signal an error
+when other commands are invoked.  If this is non-nil, all the
+keys in `project-prefix-map' are valid even if they aren't
+listed in the dispatch menu produced from `project-switch-commands'."
   :type 'boolean
   :group 'project
   :version "28.1")

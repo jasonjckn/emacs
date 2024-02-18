@@ -1,6 +1,6 @@
 ;;; comint.el --- general command interpreter in a window stuff -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1990, 1992-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1988, 1990, 1992-2024 Free Software Foundation, Inc.
 
 ;; Author: Olin Shivers <shivers@cs.cmu.edu>
 ;;	Simon Marshall <simon@gnu.org>
@@ -384,7 +384,7 @@ This variable is buffer-local."
    "\\(?:\\(?:, try\\)? *again\\| (empty for no passphrase)\\| (again)\\)?"
    ;; "[[:alpha:]]" used to be "for", which fails to match non-English.
    "\\(?: [[:alpha:]]+ .+\\)?[[:blank:]]*[:：៖][[:space:]]*\\'"
-   ;; The ccrypt encryption dialogue doesn't end with a colon, so
+   ;; The ccrypt encryption dialog doesn't end with a colon, so
    ;; treat it specially.
    "\\|^Enter encryption key: (repeat) *\\'"
    ;; openssh-8.6p1 format: "(user@host) Password:".
@@ -606,11 +606,9 @@ via PTYs.")
 
 (defvar-keymap comint-repeat-map
   :doc "Keymap to repeat comint key sequences.  Used in `repeat-mode'."
+  :repeat t
   "C-n" #'comint-next-prompt
   "C-p" #'comint-previous-prompt)
-
-(put #'comint-next-prompt 'repeat-map 'comint-repeat-map)
-(put #'comint-previous-prompt 'repeat-map 'comint-repeat-map)
 
 ;; Fixme: Is this still relevant?
 (defvar comint-ptyp t
@@ -1544,6 +1542,8 @@ Intended to be added to `isearch-mode-hook' in `comint-mode'."
   (setq isearch-message-function nil)
   (setq isearch-wrap-function nil)
   (setq isearch-push-state-function nil)
+  ;; Force isearch to not change mark.
+  (setq isearch-opoint (point))
   (kill-local-variable 'isearch-lazy-count)
   (remove-hook 'isearch-mode-end-hook 'comint-history-isearch-end t)
   (unless isearch-suspended

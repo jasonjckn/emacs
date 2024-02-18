@@ -1,6 +1,6 @@
 ;;; rect.el --- rectangle functions for GNU Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985, 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1999-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: Didier Verna <didier@didierverna.net>
 ;; Keywords: internal
@@ -940,7 +940,8 @@ Ignores `line-move-visual'."
          (move-to-column endcol t)
          (dotimes (_ n)
            (insert (cadr lines)))))
-     (region-beginning) (region-end))
+     (min (point) (mark))
+     (max (point) (mark)))
     ;; Recompute the rectangle state; no crutches should be needed now.
     (let ((p (point))
           (m (mark)))

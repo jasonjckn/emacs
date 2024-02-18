@@ -1,6 +1,6 @@
 /* Functions for image support on window system.
 
-Copyright (C) 1989-2022 Free Software Foundation, Inc.
+Copyright (C) 1989-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -479,7 +479,8 @@ image_create_bitmap_from_data (struct frame *f, char *bits,
 
 #ifdef HAVE_X_WINDOWS
   Pixmap bitmap;
-  bitmap = XCreateBitmapFromData (FRAME_X_DISPLAY (f), FRAME_X_DRAWABLE (f),
+  bitmap = XCreateBitmapFromData (FRAME_X_DISPLAY (f),
+				  dpyinfo->root_window,
 				  bits, width, height);
   if (! bitmap)
     return -1;
@@ -729,8 +730,10 @@ image_create_bitmap_from_file (struct frame *f, Lisp_Object file)
 
   filename = SSDATA (found);
 
-  result = XReadBitmapFile (FRAME_X_DISPLAY (f), FRAME_X_DRAWABLE (f),
-			    filename, &width, &height, &bitmap, &xhot, &yhot);
+  result = XReadBitmapFile (FRAME_X_DISPLAY (f),
+			    dpyinfo->root_window,
+			    filename, &width, &height, &bitmap,
+			    &xhot, &yhot);
   if (result != BitmapSuccess)
     return -1;
 
@@ -11309,6 +11312,15 @@ svg_load_image (struct frame *f, struct image *img, char *contents,
 						    img->face_font_size);
 	  viewbox_height = svg_css_length_to_pixels (iheight, dpi,
 						     img->face_font_size);
+
+	  /* Here one dimension could be zero because in percent unit.
+	     So calculate this dimension with the other.  */
+	  if (! (0 < viewbox_width) && (iwidth.unit == RSVG_UNIT_PERCENT))
+	    viewbox_width = (viewbox_height * viewbox.width / viewbox.height)
+	      * iwidth.length;
+	  else if (! (0 < viewbox_height) && (iheight.unit == RSVG_UNIT_PERCENT))
+	    viewbox_height = (viewbox_width * viewbox.height / viewbox.width)
+	      * iheight.length;
 	}
       else if (has_width && has_viewbox)
 	{
@@ -11410,6 +11422,18 @@ svg_load_image (struct frame *f, struct image *img, char *contents,
         img->background = background;
         img->background_valid = 1;
       }
+
+#if HAVE_NTGUI
+    /* Windows stores the image colors in BGR format, and SVG expects
+       them in RGB.  */
+    foreground = (foreground & 0x0000FF) << 16
+      | (foreground & 0xFF0000) >> 16
+      | (foreground & 0x00FF00);
+
+    background = (background & 0x0000FF) << 16
+      | (background & 0xFF0000) >> 16
+      | (background & 0x00FF00);
+#endif
 
     wrapped_contents = xmalloc (buffer_size);
 

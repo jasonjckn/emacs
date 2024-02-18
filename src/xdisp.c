@@ -1,6 +1,6 @@
 /* Display generation from window structure and buffer text.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -21,17 +21,17 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
    Redisplay.
 
-   Emacs separates the task of updating the display from code
-   modifying global state, e.g. buffer text.  This way functions
-   operating on buffers don't also have to be concerned with updating
-   the display.
+   Emacs separates the task of updating the display -- which we call
+   "redisplay" -- from the code modifying global state, e.g. buffer
+   text.  This way functions operating on buffers don't also have to
+   be concerned with updating the display as result of their
+   operations.
 
-   Updating the display is triggered by the Lisp interpreter when it
-   decides it's time to do it.  This is done either automatically for
-   you as part of the interpreter's command loop or as the result of
-   calling Lisp functions like `sit-for'.  The C function
-   `redisplay_internal' in xdisp.c is the only entry into the inner
-   redisplay code.
+   Redisplay is triggered by the Lisp interpreter when it decides it's
+   time to do it.  This is done either automatically for you as part
+   of the interpreter's command loop, or as the result of calling Lisp
+   functions like `sit-for'.  The C function `redisplay_internal' in
+   xdisp.c is the only entry into the inner redisplay code.
 
    The following diagram shows how redisplay code is invoked.  As you
    can see, Lisp calls redisplay and vice versa.
@@ -75,63 +75,97 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    and to make these changes visible.  Preferably it would do that in
    a moderately intelligent way, i.e. fast.
 
-   Changes in buffer text can be deduced from window and buffer
-   structures, and from some global variables like `beg_unchanged' and
-   `end_unchanged'.  The contents of the display are additionally
-   recorded in a `glyph matrix', a two-dimensional matrix of glyph
-   structures.  Each row in such a matrix corresponds to a line on the
-   display, and each glyph in a row corresponds to a column displaying
-   a character, an image, or what else.  This matrix is called the
-   `current glyph matrix' or `current matrix' in redisplay
-   terminology.
+   At its highest level, redisplay can be divided into 3 distinct
+   steps, all of which are visible in `redisplay_internal':
 
-   For buffer parts that have been changed since the last update, a
-   second glyph matrix is constructed, the so called `desired glyph
-   matrix' or short `desired matrix'.  Current and desired matrix are
-   then compared to find a cheap way to update the display, e.g. by
-   reusing part of the display by scrolling lines.  The actual update
-   of the display of each window by comparing the desired and the
-   current matrix is done by `update_window', which calls functions
-   which draw to the glass (those functions are specific to the type
-   of the window's frame: X, w32, NS, etc.).
+    . decide which frames need their windows to be considered for redisplay
+    . for each window whose display might need to be updated, compute
+      a structure, called "glyph matrix", which describes how it
+      should look on display
+    . actually update the display of windows on the glass where the
+      newly obtained glyph matrix differs from the one produced by the
+      previous redisplay cycle
+
+   The first of these steps is done by `redisplay_internal' itself, by
+   looping through all the frames and testing their various flags,
+   such as their visibility.  The result of this could be that only
+   the selected window on the selected frame must be redisplayed, or
+   it could conclude that other windows need to be considered as well.
+
+   The second step considers each window that might need to be
+   redisplayed.  This could be only the selected window, or the window
+   trees of one or more frames.  The function which considers a window
+   and decides whether it actually needs redisplay is
+   `redisplay_window'.  It does so by looking at the changes in
+   position of point, in buffer text, in text properties, overlays,
+   etc.  These changes can be deduced from window and buffer
+   structures, and from some global variables like `beg_unchanged' and
+   `end_unchanged'.  The current contents of the display are recorded
+   in a `glyph matrix', a two-dimensional matrix of glyph structures.
+   Each row in such a matrix corresponds to a line on the display, and
+   each glyph in a row corresponds to a column displaying a character,
+   an image, or what else.  This matrix is called the `current glyph
+   matrix', or `current matrix', in redisplay terminology.
+
+   For buffer parts that have been changed since the last redisplay,
+   `redisplay_window' constructs a second glyph matrix, the so called
+   `desired glyph matrix' or short `desired matrix'.  It does so in
+   the most optimal way possible, avoiding the examination of text
+   that didn't change, reusing portions of the current matrix if
+   possible, etc.  It could, in particular, decide that a window
+   doesn't need to be redisplayed at all.
+
+   This second step of redisplay also updates the parts of the desired
+   matrix that correspond to the mode lines, header lines, and
+   tab-lines of the windows which need that; see `display_mode_lines'.
+
+   In the third and last step, the current and desired matrix are then
+   compared to find a cheap way to update the display, e.g. by reusing
+   part of the display by scrolling lines.  The actual update of the
+   display of each window, by comparing the desired and the current
+   matrix, is done by `update_window', which calls functions which
+   draw to the glass (those functions are specific to the type of the
+   window's frame: X, w32, NS, etc.).
 
    Once the display of a window on the glass has been updated, its
    desired matrix is used to update the corresponding rows of the
    current matrix, and then the desired matrix is discarded.
 
    You will find a lot of redisplay optimizations when you start
-   looking at the innards of redisplay.  The overall goal of all these
-   optimizations is to make redisplay fast because it is done
-   frequently.  Some of these optimizations are implemented by the
-   following functions:
+   looking at the innards of `redisplay_window'.  The overall goal of
+   all these optimizations is to make redisplay fast because it is
+   done frequently.  Some of these optimizations are implemented by
+   the following functions:
 
     . try_cursor_movement
 
-      This function tries to update the display if the text in the
-      window did not change and did not scroll, only point moved, and
-      it did not move off the displayed portion of the text.
+      This optimization is applicable if the text in the window did
+      not change and did not scroll, only point moved, and it did not
+      move off the displayed portion of the text.  In that case, the
+      window's glyph matrix is still valid, and only the position of
+      the cursor might need to be updated.
 
     . try_window_reusing_current_matrix
 
-      This function reuses the current matrix of a window when text
-      has not changed, but the window start changed (e.g., due to
+      This function reuses the current glyph matrix of a window when
+      text has not changed, but the window start changed (e.g., due to
       scrolling).
 
     . try_window_id
 
-      This function attempts to redisplay a window by reusing parts of
-      its existing display.  It finds and reuses the part that was not
-      changed, and redraws the rest.  (The "id" part in the function's
-      name stands for "insert/delete", not for "identification" or
-      somesuch.)
+      This function attempts to update a window's glyph matrix by
+      reusing parts of its current glyph matrix.  It finds and reuses
+      the part that was not changed, and regenerates the rest.  (The
+      "id" part in the function's name stands for "insert/delete", not
+      for "identification" or somesuch.)
 
     . try_window
 
-      This function performs the full, unoptimized, redisplay of a
-      single window assuming that its fonts were not changed and that
-      the cursor will not end up in the scroll margins.  (Loading
-      fonts requires re-adjustment of dimensions of glyph matrices,
-      which makes this method impossible to use.)
+      This function performs the full, unoptimized, generation of a
+      single window's glyph matrix, assuming that its fonts were not
+      changed and that the cursor will not end up in the scroll
+      margins.  (Loading fonts requires re-adjustment of dimensions of
+      glyph matrices, which makes this method impossible to use.)
 
    The optimizations are tried in sequence (some can be skipped if
    it is known that they are not applicable).  If none of the
@@ -140,16 +174,17 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
    Note that there's one more important optimization up Emacs's
    sleeve, but it is related to actually redrawing the potentially
-   changed portions of the window/frame, not to reproducing the
-   desired matrices of those potentially changed portions.  Namely,
-   the function update_frame and its subroutines, which you will find
-   in dispnew.c, compare the desired matrices with the current
-   matrices, and only redraw the portions that changed.  So it could
-   happen that the functions in this file for some reason decide that
-   the entire desired matrix needs to be regenerated from scratch, and
-   still only parts of the Emacs display, or even nothing at all, will
-   be actually delivered to the glass, because update_frame has found
-   that the new and the old screen contents are similar or identical.
+   changed portions of the window/frame as part of the third step, not
+   to generating the desired matrices of those potentially changed
+   portions.  Namely, the function `update_frame' and its subroutines,
+   which you will find in dispnew.c, compare the desired matrices with
+   the current matrices, and only redraw the portions that changed.
+   So it could happen that the functions in this file for some reason
+   decide that the entire desired matrix needs to be regenerated from
+   scratch, and still only parts of the Emacs display, or even nothing
+   at all, will be actually delivered to the glass, because
+   `update_frame' has found that the new and the old screen contents
+   are similar or identical.
 
    Desired matrices.
 
@@ -159,7 +194,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    redisplay tries to optimize its work, and thus only generates
    glyphs for rows that need to be updated on the screen.  Rows that
    don't need to be updated are left "disabled", and their contents
-   should be ignored.
+   in the desired matrix should be ignored.
 
    The function `display_line' is the central function to look at if
    you are interested in how the rows of the desired matrix are
@@ -3467,7 +3502,7 @@ init_iterator (struct it *it, struct window *w,
 
       /* This is set only when long_line_optimizations_p is non-zero
 	 for the current buffer.  */
-      it->narrowed_begv = 0;
+      it->medium_narrowing_begv = 0;
 
       /* Compute faces etc.  */
       reseat (it, it->current.pos, true);
@@ -3476,56 +3511,177 @@ init_iterator (struct it *it, struct window *w,
   CHECK_IT (it);
 }
 
-/* Compute a suitable alternate value for BEGV and ZV that may be used
-   temporarily to optimize display if the buffer in window W contains
-   long lines.  */
+/* How Emacs deals with long lines.
+
+   (1) When a buffer is about to be (re)displayed, 'redisplay_window'
+   detects, with a heuristic, whether it contains long lines.
+
+   This happens in 'redisplay_window' because it is only displaying
+   buffers with long lines that is problematic.  In other words, none
+   of the optimizations described below is ever used in buffers that
+   are never displayed.
+
+   This happens with a heuristic, which checks whether a buffer
+   contains long lines, each time its contents have changed "enough"
+   between two redisplay cycles, because a buffer without long lines
+   can become a buffer with long lines at any time, for example after
+   a yank command, or after a replace command, or while the output of
+   an external process is inserted in a buffer.
+
+   When Emacs has detected that a buffer contains long lines, the
+   buffer-local variable 'long_line_optimizations_p' (in 'struct
+   buffer') is set, and Emacs does not try to detect whether the
+   buffer does or does not contain long lines anymore.
+
+   What a long line is depends on the variable 'long-line-threshold',
+   whose default value is 50000 (characters).
+
+   (2) When a buffer with long lines is (re)displayed, the amount of
+   data that the display routines consider is, in a few well-chosen
+   places, limited with a temporary restriction, whose bounds are
+   calculated with the functions below.
+
+   (2.1) 'get_small_narrowing_begv' is used to create a restriction
+   which starts a few hundred characters before point.  The exact
+   number of characters depends on the width of the window in which
+   the buffer is displayed.
+
+   There is no corresponding 'get_small_narrowing_zv' function,
+   because it is not necessary to set the end limit of that
+   restriction.
+
+   This restriction is used in four places, namely:
+   'back_to_previous_line_start' and 'move_it_vertically_backward'
+   (with the 'SET_WITH_NARROWED_BEGV' macro), and in
+   'composition_compute_stop_pos' and 'find_automatic_composition' (in
+   a conditional statement depending on 'long_line_optimizations_p').
+
+   (2.2) 'get_medium_narrowing_begv' is used to create a restriction
+   which starts a few thousand characters before point.  The exact
+   number of characters depends on the size (width and height) of the
+   window in which the buffer is displayed.  For performance reasons,
+   the return value of that function is cached in 'struct it', in the
+   'medium_narrowing_begv' field.
+
+   The corresponding function 'get_medium_narrowing_zv' (and
+   'medium_narrowing_zv' field in 'struct it') is not used to set the
+   end limit of the restriction, which is again unnecessary, but to
+   determine, in 'reseat', whether the iterator has moved far enough
+   from its original position, and whether the start position of the
+   restriction must be computed anew.
+
+   This restriction is used in a single place:
+   'get_visually_first_element', with the 'SET_WITH_NARROWED_BEGV'
+   macro.
+
+   (2.3) 'get_large_narrowing_begv' and 'get_large_narrowing_zv' are
+   used to create a restriction which starts a few hundred thousand
+   characters before point and ends a few hundred thousand characters
+   after point.  The size of that restriction depends on the variable
+   'long-line-optimizations-region-size', whose default value is
+   500000 (characters); it can be adjusted by a few hundred characters
+   depending on 'long-line-optimizations-bol-search-limit', whose
+   default value is 128 (characters).
+
+   For performance reasons again, the return values of these functions
+   are stored in the 'large_narrowing_begv' and 'large_narrowing_zv'
+   fields in 'struct it'.
+
+   The restriction defined by these values is used around three
+   low-level hooks: around 'fontification-functions', in
+   'handle_fontified_prop', and around 'pre-command-hook' and
+   'post-command-hook', in 'safe_run_hooks_maybe_narrowed', which is
+   called in 'command_loop_1'.  These restrictions are set around
+   these hooks with 'labeled_narrow_to_region'; the restrictions are
+   labeled, and cannot be removed with a call to 'widen', but can be
+   removed with 'without-restriction' with a :label argument.
+*/
 
 static int
 get_narrowed_width (struct window *w)
 {
-  int fact;
   /* In a character-only terminal, only one font size is used, so we
      can use a smaller factor.  */
-  fact = EQ (Fterminal_live_p (Qnil), Qt) ? 2 : 3;
-  return fact * window_body_width (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  int fact = FRAME_WINDOW_P (XFRAME (w->frame)) ? 3 : 2;
+  /* If the window has no fringes (in a character-only terminal or in
+     a GUI frame without fringes), subtract 1 from the width for the
+     '\' line wrapping character.  */
+  int width = window_body_width (w, WINDOW_BODY_IN_CANONICAL_CHARS)
+    - ((WINDOW_RIGHT_FRINGE_WIDTH (w) == 0
+	|| WINDOW_LEFT_FRINGE_WIDTH (w) == 0) ? 1 : 0);
+  return fact * max (1, width);
 }
 
 static int
 get_narrowed_len (struct window *w)
 {
-  return get_narrowed_width (w) *
-    window_body_height (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  int height = window_body_height (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  return get_narrowed_width (w) * max (1, height);
 }
 
-ptrdiff_t
-get_narrowed_begv (struct window *w, ptrdiff_t pos)
+static ptrdiff_t
+get_medium_narrowing_begv (struct window *w, ptrdiff_t pos)
 {
   int len = get_narrowed_len (w);
   return max ((pos / len - 1) * len, BEGV);
 }
 
-ptrdiff_t
-get_narrowed_zv (struct window *w, ptrdiff_t pos)
+static ptrdiff_t
+get_medium_narrowing_zv (struct window *w, ptrdiff_t pos)
 {
   int len = get_narrowed_len (w);
   return min ((pos / len + 1) * len, ZV);
 }
 
-ptrdiff_t
-get_closer_narrowed_begv (struct window *w, ptrdiff_t pos)
+/* Find the position of the last BOL before POS, unless it is too far
+   away.  The buffer portion in which the search occurs is gradually
+   enlarged: [POS-500..POS], [POS-5500..POS-500],
+   [POS-55500..POS-5500], and finally [POS-555500..POS-55500].  Return
+   BEGV-1 if no BOL was found in [POS-555500..POS].  */
+static ptrdiff_t
+get_nearby_bol_pos (ptrdiff_t pos)
 {
-  int len = get_narrowed_width (w);
-  return max ((pos / len - 1) * len, BEGV);
+  ptrdiff_t start, pos_bytepos, cur, next, found, bol = BEGV - 1, init_pos = pos;
+  int dist;
+  for (dist = 500; dist <= 500000; dist *= 10)
+    {
+      pos_bytepos = pos == BEGV ? BEGV_BYTE : CHAR_TO_BYTE (pos);
+      start = pos - dist < BEGV ? BEGV : pos - dist;
+      for (cur = start; cur < pos; cur = next)
+	{
+	  next = find_newline1 (cur, CHAR_TO_BYTE (cur),
+				pos, pos_bytepos,
+				1, &found, NULL, false);
+	  if (found)
+	    bol = next;
+	  else
+	    break;
+	}
+      if (bol >= BEGV || start == BEGV)
+	break;
+      else
+	pos = pos - dist < BEGV ? BEGV : pos - dist;
+    }
+  eassert (bol <= init_pos);
+  return bol;
 }
 
 ptrdiff_t
-get_locked_narrowing_begv (ptrdiff_t pos)
+get_small_narrowing_begv (struct window *w, ptrdiff_t pos)
 {
-  if (long_line_locked_narrowing_region_size <= 0)
+  int len = get_narrowed_width (w);
+  ptrdiff_t bol_pos = max (get_nearby_bol_pos (pos), BEGV);
+  return max (bol_pos + ((pos - bol_pos) / len - 1) * len, BEGV);
+}
+
+ptrdiff_t
+get_large_narrowing_begv (ptrdiff_t pos)
+{
+  if (long_line_optimizations_region_size <= 0)
     return BEGV;
-  int len = long_line_locked_narrowing_region_size / 2;
+  int len = long_line_optimizations_region_size / 2;
   int begv = max (pos - len, BEGV);
-  int limit = long_line_locked_narrowing_bol_search_limit;
+  int limit = long_line_optimizations_bol_search_limit;
   while (limit > 0)
     {
       if (begv == BEGV || FETCH_BYTE (CHAR_TO_BYTE (begv) - 1) == '\n')
@@ -3537,11 +3693,11 @@ get_locked_narrowing_begv (ptrdiff_t pos)
 }
 
 ptrdiff_t
-get_locked_narrowing_zv (ptrdiff_t pos)
+get_large_narrowing_zv (ptrdiff_t pos)
 {
-  if (long_line_locked_narrowing_region_size <= 0)
+  if (long_line_optimizations_region_size <= 0)
     return ZV;
-  int len = long_line_locked_narrowing_region_size / 2;
+  int len = long_line_optimizations_region_size / 2;
   return min (pos + len, ZV);
 }
 
@@ -3556,7 +3712,7 @@ unwind_narrowed_begv (Lisp_Object point_min)
 
 #define SET_WITH_NARROWED_BEGV(IT,DST,EXPR,BV)				\
   do {									\
-    if (IT->narrowed_begv)						\
+    if (IT->medium_narrowing_begv)					\
       {									\
 	specpdl_ref count = SPECPDL_INDEX ();				\
 	record_unwind_protect (unwind_narrowed_begv, Fpoint_min ());	\
@@ -4379,19 +4535,19 @@ handle_fontified_prop (struct it *it)
       eassert (it->end_charpos == ZV);
 
       if (current_buffer->long_line_optimizations_p
-	  && long_line_locked_narrowing_region_size > 0)
+	  && long_line_optimizations_region_size > 0)
 	{
-	  ptrdiff_t begv = it->locked_narrowing_begv;
-	  ptrdiff_t zv = it->locked_narrowing_zv;
+	  ptrdiff_t begv = it->large_narrowing_begv;
+	  ptrdiff_t zv = it->large_narrowing_zv;
 	  ptrdiff_t charpos = IT_CHARPOS (*it);
 	  if (charpos < begv || charpos > zv)
 	    {
-	      begv = get_locked_narrowing_begv (charpos);
-	      zv = get_locked_narrowing_zv (charpos);
+	      begv = get_large_narrowing_begv (charpos);
+	      zv = get_large_narrowing_zv (charpos);
 	    }
 	  if (begv != BEG || zv != Z)
-	    narrow_to_region_locked (make_fixnum (begv), make_fixnum (zv),
-				     Qfontification_functions);
+	    labeled_narrow_to_region (make_fixnum (begv), make_fixnum (zv),
+				      Qlong_line_optimizations_in_fontification_functions);
 	}
 
       /* Don't allow Lisp that runs from 'fontification-functions'
@@ -4568,7 +4724,7 @@ face_at_pos (const struct it *it, enum lface_attribute_index attr_filter)
                                       &next_stop,
                                       base_face_id, false,
                                       attr_filter);
-    } // !STRINGP (it->string))
+    } /* !STRINGP (it->string) */
 }
 
 
@@ -6266,13 +6422,16 @@ static ptrdiff_t
 string_buffer_position (Lisp_Object string, ptrdiff_t around_charpos)
 {
   const int MAX_DISTANCE = 1000;
+  ptrdiff_t forward_limit = min (around_charpos + MAX_DISTANCE, ZV);
   ptrdiff_t found = string_buffer_position_lim (string, around_charpos,
-						around_charpos + MAX_DISTANCE,
-						false);
+						forward_limit, false);
 
   if (!found)
-    found = string_buffer_position_lim (string, around_charpos,
-					around_charpos - MAX_DISTANCE, true);
+    {
+      ptrdiff_t backward_limit = max (around_charpos - MAX_DISTANCE, BEGV);
+      found = string_buffer_position_lim (string, around_charpos,
+					  backward_limit, true);
+    }
   return found;
 }
 
@@ -7023,7 +7182,7 @@ back_to_previous_line_start (struct it *it)
   dec_both (&cp, &bp);
   SET_WITH_NARROWED_BEGV (it, IT_CHARPOS (*it),
 			  find_newline_no_quit (cp, bp, -1, &IT_BYTEPOS (*it)),
-			  get_closer_narrowed_begv (it->w, IT_CHARPOS (*it)));
+			  get_small_narrowing_begv (it->w, IT_CHARPOS (*it)));
 }
 
 /* Find in the current buffer the first display or overlay string
@@ -7327,7 +7486,7 @@ back_to_previous_visible_line_start (struct it *it)
   it->continuation_lines_width = 0;
 
   eassert (IT_CHARPOS (*it) >= BEGV);
-  eassert (it->narrowed_begv > 0 /* long-line optimizations: all bets off */
+  eassert (it->medium_narrowing_begv > 0 /* long-line optimizations: all bets off */
 	   || IT_CHARPOS (*it) == BEGV
 	   || FETCH_BYTE (IT_BYTEPOS (*it) - 1) == '\n');
   CHECK_IT (it);
@@ -7445,24 +7604,29 @@ reseat (struct it *it, struct text_pos pos, bool force_p)
 
   if (current_buffer->long_line_optimizations_p)
     {
-      if (!it->narrowed_begv)
+      if (!it->medium_narrowing_begv)
 	{
-	  it->narrowed_begv = get_narrowed_begv (it->w, window_point (it->w));
-	  it->narrowed_zv = get_narrowed_zv (it->w, window_point (it->w));
-	  it->locked_narrowing_begv
-	    = get_locked_narrowing_begv (window_point (it->w));
-	  it->locked_narrowing_zv
-	    = get_locked_narrowing_zv (window_point (it->w));
+	  it->medium_narrowing_begv
+	    = get_medium_narrowing_begv (it->w, window_point (it->w));
+	  it->medium_narrowing_zv
+	    = get_medium_narrowing_zv (it->w, window_point (it->w));
+	  it->large_narrowing_begv
+	    = get_large_narrowing_begv (window_point (it->w));
+	  it->large_narrowing_zv
+	    = get_large_narrowing_zv (window_point (it->w));
 	}
-      else if ((pos.charpos < it->narrowed_begv || pos.charpos > it->narrowed_zv)
+      else if ((pos.charpos < it->medium_narrowing_begv
+		|| pos.charpos > it->medium_narrowing_zv)
 		&& (!redisplaying_p || it->line_wrap == TRUNCATE))
 	{
-	  it->narrowed_begv = get_narrowed_begv (it->w, pos.charpos);
-	  it->narrowed_zv = get_narrowed_zv (it->w, pos.charpos);
-	  it->locked_narrowing_begv
-	    = get_locked_narrowing_begv (window_point (it->w));
-	  it->locked_narrowing_zv
-	    = get_locked_narrowing_zv (window_point (it->w));
+	  it->medium_narrowing_begv
+	    = get_medium_narrowing_begv (it->w, pos.charpos);
+	  it->medium_narrowing_zv
+	    = get_medium_narrowing_zv (it->w, pos.charpos);
+	  it->large_narrowing_begv
+	    = get_large_narrowing_begv (window_point (it->w));
+	  it->large_narrowing_zv
+	    = get_large_narrowing_zv (window_point (it->w));
 	}
     }
 
@@ -8133,9 +8297,17 @@ get_next_display_element (struct it *it)
       && success_p
       && FRAME_WINDOW_P (it->f))
     {
-      struct face *face = FACE_FROM_ID (it->f, it->face_id);
+      struct face *face = FACE_FROM_ID_OR_NULL (it->f, it->face_id);
 
-      if (it->what == IT_COMPOSITION && it->cmp_it.ch >= 0)
+      /* It shouldn't happen, ever, that FACE is NULL here, but
+         evidently some faulty fonts/fontsets can sometimes cause it.
+         In that case, we punt and consider the stuff undisplayable.  */
+      if (!face)
+	{
+	  it->what = IT_GLYPHLESS;
+	  it->glyphless_method = GLYPHLESS_DISPLAY_EMPTY_BOX;
+	}
+      else if (it->what == IT_COMPOSITION && it->cmp_it.ch >= 0)
 	{
 	  /* Automatic composition with glyph-string.   */
 	  Lisp_Object gstring = composition_gstring_from_id (it->cmp_it.id);
@@ -8771,7 +8943,7 @@ get_visually_first_element (struct it *it)
   SET_WITH_NARROWED_BEGV (it, bob,
 			  string_p ? 0 :
 			  IT_CHARPOS (*it) < BEGV ? obegv : BEGV,
-			  it->narrowed_begv);
+			  it->medium_narrowing_begv);
 
   if (STRINGP (it->string))
     {
@@ -8815,7 +8987,7 @@ get_visually_first_element (struct it *it)
 				find_newline_no_quit (IT_CHARPOS (*it),
 						      IT_BYTEPOS (*it), -1,
 						      &it->bidi_it.bytepos),
-				it->narrowed_begv);
+				it->medium_narrowing_begv);
       bidi_paragraph_init (it->paragraph_embedding, &it->bidi_it, true);
       do
 	{
@@ -9591,8 +9763,8 @@ move_it_in_display_line_to (struct it *it,
 	  else
 	    line_number_pending = true;
 	}
-      /* If there's a line-/wrap-prefix, handle it.  */
-      if (it->method == GET_FROM_BUFFER)
+      /* If there's a line-/wrap-prefix, handle it, if we didn't already.  */
+      if (it->area == TEXT_AREA && !it->string_from_prefix_prop_p)
 	handle_line_prefix (it);
     }
 
@@ -10704,7 +10876,7 @@ move_it_vertically_backward (struct it *it, int dy)
 	  dec_both (&cp, &bp);
 	  SET_WITH_NARROWED_BEGV (it, cp,
 				  find_newline_no_quit (cp, bp, -1, NULL),
-				  get_closer_narrowed_begv (it->w, IT_CHARPOS (*it)));
+				  get_small_narrowing_begv (it->w, IT_CHARPOS (*it)));
 	  move_it_to (it, cp, -1, -1, -1, MOVE_TO_POS);
 	}
       bidi_unshelve_cache (it3data, true);
@@ -11233,7 +11405,6 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
 	      else
 		move_it_in_display_line (&it, start, it1_x + 1,
 					 MOVE_TO_POS | MOVE_TO_X);
-	      move_it_to (&it, start - 1, -1, -1, -1, MOVE_TO_POS);
 	      start_x = it.current_x;
 	      /* If we didn't change our buffer position, the pixel
 		 width of what's here was not yet accounted for; do it
@@ -12793,6 +12964,8 @@ truncate_message_1 (void *a1, Lisp_Object a2)
   return false;
 }
 
+extern intptr_t garbage_collection_inhibited;
+
 /* Set the current message to STRING.  */
 
 static void
@@ -12802,7 +12975,11 @@ set_message (Lisp_Object string)
 
   eassert (STRINGP (string));
 
-  if (FUNCTIONP (Vset_message_function))
+  if (FUNCTIONP (Vset_message_function)
+      /* FIXME: (bug#63253) We should really make the regexp engine re-entrant,
+         but in the mean time, let's ignore `set-message-function` when
+         called from `probably_quit`.  */
+      && !garbage_collection_inhibited)
     {
       specpdl_ref count = SPECPDL_INDEX ();
       specbind (Qinhibit_quit, Qt);
@@ -12879,7 +13056,9 @@ clear_message (bool current_p, bool last_displayed_p)
 
   if (current_p)
     {
-      if (FUNCTIONP (Vclear_message_function))
+      if (FUNCTIONP (Vclear_message_function)
+          /* FIXME: (bug#63253) Same as for `set-message-function` above.  */
+          && !garbage_collection_inhibited)
         {
           specpdl_ref count = SPECPDL_INDEX ();
           specbind (Qinhibit_quit, Qt);
@@ -13407,7 +13586,8 @@ gui_consider_frame_title (Lisp_Object frame)
 
       Fselect_window (f->selected_window, Qt);
       set_buffer_internal_1 (XBUFFER (XWINDOW (f->selected_window)->contents));
-      fmt = FRAME_ICONIFIED_P (f) ? Vicon_title_format : Vframe_title_format;
+      fmt = (FRAME_ICONIFIED_P (f) && !EQ (Vicon_title_format, Qt)
+	     ? Vicon_title_format : Vframe_title_format);
 
       mode_line_target = MODE_LINE_TITLE;
       title_start = MODE_LINE_NOPROP_LEN (0);
@@ -14254,12 +14434,14 @@ redisplay_tab_bar (struct frame *f)
 	frame_default_tab_bar_height = new_height;
     }
 
-  /* If new_height or new_nrows indicate that we need to enlarge the
-     tab-bar window, we can return right away.  */
+  /* If new_height or new_nrows indicate that we need to enlarge or
+     shrink the tab-bar window, we can return right away.  */
   if (new_nrows > f->n_tab_bar_rows
       || (EQ (Vauto_resize_tab_bars, Qgrow_only)
 	  && !f->minimize_tab_bar_window_p
-	  && new_height > WINDOW_PIXEL_HEIGHT (w)))
+	  && new_height > WINDOW_PIXEL_HEIGHT (w))
+      || (! EQ (Vauto_resize_tab_bars, Qgrow_only)
+	  && new_height < WINDOW_PIXEL_HEIGHT (w)))
     {
       if (FRAME_TERMINAL (f)->change_tab_bar_height_hook)
 	FRAME_TERMINAL (f)->change_tab_bar_height_hook (f, new_height);
@@ -15192,7 +15374,7 @@ redisplay_tool_bar (struct frame *f)
 		    0, 0, 0, STRING_MULTIBYTE (f->desired_tool_bar_string));
   /* FIXME: This should be controlled by a user option.  But it
      doesn't make sense to have an R2L tool bar if the menu bar cannot
-     be drawn also R2L, and making the menu bar R2L is tricky due
+     be drawn also R2L, and making the menu bar R2L is tricky due to
      toolkit-specific code that implements it.  If an R2L tool bar is
      ever supported, display_tool_bar_line should also be augmented to
      call unproduce_glyphs like display_line and display_string
@@ -16374,7 +16556,7 @@ redisplay_internal (void)
   FOR_EACH_FRAME (tail, frame)
     XFRAME (frame)->already_hscrolled_p = false;
 
-  reset_outermost_narrowings ();
+  reset_outermost_restrictions ();
 
  retry:
   /* Remember the currently selected window.  */
@@ -16821,6 +17003,13 @@ redisplay_internal (void)
 		/* Only GC scrollbars when we redisplay the whole frame.  */
 		= f->redisplay || !REDISPLAY_SOME_P ();
 	      bool f_redisplay_flag = f->redisplay;
+
+	      /* The X error handler may have deleted that frame
+		 before we went back to retry_frame.  This must come
+		 before any accesses to f->terminal.  */
+	      if (!FRAME_LIVE_P (f))
+		continue;
+
 	      /* Mark all the scroll bars to be removed; we'll redeem
 		 the ones we want when we redisplay their windows.  */
 	      if (gcscrollbars && FRAME_TERMINAL (f)->condemn_scroll_bars_hook)
@@ -16828,7 +17017,6 @@ redisplay_internal (void)
 
 	      if (FRAME_VISIBLE_P (f) && !FRAME_OBSCURED_P (f))
 		{
-
 		  /* Don't allow freeing images and faces for this
 		     frame as long as the frame's update wasn't
 		     completed.  This prevents crashes when some Lisp
@@ -17250,7 +17438,6 @@ mark_window_display_accurate_1 (struct window *w, bool accurate_p)
 
       BUF_UNCHANGED_MODIFIED (b) = BUF_MODIFF (b);
       BUF_OVERLAY_UNCHANGED_MODIFIED (b) = BUF_OVERLAY_MODIFF (b);
-      BUF_CHARS_UNCHANGED_MODIFIED (b) = BUF_CHARS_MODIFF (b);
       BUF_BEG_UNCHANGED (b) = BUF_GPT (b) - BUF_BEG (b);
       BUF_END_UNCHANGED (b) = BUF_Z (b) - BUF_GPT (b);
 
@@ -17407,6 +17594,7 @@ redisplay_window_error (Lisp_Object error_data)
   if (max_redisplay_ticks > 0
       && CONSP (error_data)
       && EQ (XCAR (error_data), Qerror)
+      && CONSP (XCDR (error_data))
       && STRINGP (XCAR (XCDR (error_data))))
     Vdelayed_warnings_list = Fcons (list2 (XCAR (error_data),
 					   XCAR (XCDR (error_data))),
@@ -17657,7 +17845,8 @@ set_cursor_from_row (struct window *w, struct glyph_row *row,
 	    else if (dpos == 0)
 	      match_with_avoid_cursor = true;
 	  }
-	else if (STRINGP (glyph->object))
+	else if (STRINGP (glyph->object)
+		 && !glyph->avoid_cursor_p)
 	  {
 	    Lisp_Object chprop;
 	    ptrdiff_t glyph_pos = glyph->charpos;
@@ -17883,7 +18072,8 @@ set_cursor_from_row (struct window *w, struct glyph_row *row,
 	      /* Any glyphs that come from the buffer are here because
 		 of bidi reordering.  Skip them, and only pay
 		 attention to glyphs that came from some string.  */
-	      if (STRINGP (glyph->object))
+	      if (STRINGP (glyph->object)
+		  && !glyph->avoid_cursor_p)
 		{
 		  Lisp_Object str;
 		  ptrdiff_t tem;
@@ -18521,8 +18711,9 @@ try_scrolling (Lisp_Object window, bool just_this_one_p,
 	  start_display (&it, w, startp);
 
 	  if (arg_scroll_conservatively)
-	    amount_to_scroll = max (dy, frame_line_height
-				    * max (scroll_step, temp_scroll_step));
+	    amount_to_scroll
+	      = min (max (dy, frame_line_height),
+		     frame_line_height * arg_scroll_conservatively);
 	  else if (scroll_step || temp_scroll_step)
 	    amount_to_scroll = scroll_max;
 	  else
@@ -19416,6 +19607,13 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
 	    blank_row (w, row, y);
 	  goto finish_scroll_bars;
 	}
+      else if (minibuf_level >= 1)
+	{
+	  /* We could have a message produced by set-minibuffer-message
+	     displayed in the mini-window as an overlay, so resize the
+	     mini-window if needed.  */
+	  resize_mini_window (w, false);
+	}
 
       clear_glyph_matrix (w->desired_matrix);
     }
@@ -19521,7 +19719,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
   /* Check whether the buffer to be displayed contains long lines.  */
   if (!NILP (Vlong_line_threshold)
       && !current_buffer->long_line_optimizations_p
-      && (CHARS_MODIFF - CHARS_UNCHANGED_MODIFIED > 8
+      && (CHARS_MODIFF - UNCHANGED_MODIFIED > 8
 	  || current_buffer->clip_changed))
     {
       ptrdiff_t cur, next, found, max = 0, threshold;
@@ -20567,6 +20765,8 @@ try_window (Lisp_Object window, struct text_pos pos, int flags)
       int bot_scroll_margin = top_scroll_margin;
       if (window_wants_header_line (w))
 	top_scroll_margin += CURRENT_HEADER_LINE_HEIGHT (w);
+      if (window_wants_tab_line (w))
+	top_scroll_margin += CURRENT_TAB_LINE_HEIGHT (w);
       start_display (&it, w, pos);
 
       if ((w->cursor.y >= 0
@@ -20912,8 +21112,10 @@ try_window_reusing_current_matrix (struct window *w)
 	    pt_row = first_row_to_display;
 	}
 
+      if (first_row_to_display->y >= yb)
+	return false;
+
       /* Start displaying at the start of first_row_to_display.  */
-      eassert (first_row_to_display->y < yb);
       init_to_row_start (&it, w, first_row_to_display);
 
       nrows_scrolled = (MATRIX_ROW_VPOS (first_reusable_row, w->current_matrix)
@@ -21911,17 +22113,23 @@ try_window_id (struct window *w)
 
   /* Don't let the cursor end in the scroll margins.  */
   {
-    int this_scroll_margin = window_scroll_margin (w, MARGIN_IN_PIXELS);
+    int top_scroll_margin = window_scroll_margin (w, MARGIN_IN_PIXELS);
+    int bot_scroll_margin = top_scroll_margin;
     int cursor_height = MATRIX_ROW (w->desired_matrix, w->cursor.vpos)->height;
 
-    if ((w->cursor.y < this_scroll_margin
+    if (window_wants_header_line (w))
+      top_scroll_margin += CURRENT_HEADER_LINE_HEIGHT (w);
+    if (window_wants_tab_line (w))
+      top_scroll_margin += CURRENT_TAB_LINE_HEIGHT (w);
+
+    if ((w->cursor.y < top_scroll_margin
 	 && CHARPOS (start) > BEGV)
 	/* Old redisplay didn't take scroll margin into account at the bottom,
 	   but then global-hl-line-mode doesn't scroll.  KFS 2004-06-14 */
 	|| (w->cursor.y
 	    + (cursor_row_fully_visible_p (w, false, true, true)
 	       ? 1
-	       : cursor_height + this_scroll_margin)) > it.last_visible_y)
+	       : cursor_height + bot_scroll_margin)) > it.last_visible_y)
       {
 	w->cursor.vpos = -1;
 	clear_glyph_matrix (w->desired_matrix);
@@ -23291,8 +23499,9 @@ extend_face_to_end_of_line (struct it *it)
 	  it->avoid_cursor_p = true;
 	  it->object = Qnil;
 
-	  const int stretch_ascent = (((it->ascent + it->descent)
-	                               * FONT_BASE (font)) / FONT_HEIGHT (font));
+	  const int stretch_height = it->ascent + it->descent;
+	  const int stretch_ascent =
+	    (stretch_height * FONT_BASE (font)) / FONT_HEIGHT (font);
 
 	  if (indicator_column >= 0
 	      && indicator_column > it->current_x
@@ -23312,8 +23521,7 @@ extend_face_to_end_of_line (struct it *it)
 	      if (stretch_width > 0)
 		{
 		  append_stretch_glyph (it, Qnil, stretch_width,
-		                        it->ascent + it->descent,
-		                        stretch_ascent);
+		                        stretch_height, stretch_ascent);
 		}
 
 	      /* Generate the glyph indicator only if
@@ -23321,6 +23529,8 @@ extend_face_to_end_of_line (struct it *it)
 	      if (it->current_x < indicator_column)
 		{
 		  const int save_face_id = it->face_id;
+		  const int save_ascent = it->ascent;
+		  const int save_descent = it->descent;
 		  it->char_to_display
 		    = XFIXNAT (Vdisplay_fill_column_indicator_character);
 		  it->face_id
@@ -23328,6 +23538,8 @@ extend_face_to_end_of_line (struct it *it)
 		                   0, extend_face_id);
 		  PRODUCE_GLYPHS (it);
 		  it->face_id = save_face_id;
+		  it->ascent = save_ascent;
+		  it->descent = save_descent;
 		}
 	    }
 
@@ -23341,8 +23553,7 @@ extend_face_to_end_of_line (struct it *it)
 		{
 		  clear_position (it);
 		  append_stretch_glyph (it, Qnil, stretch_width,
-					it->ascent + it->descent,
-					stretch_ascent);
+					stretch_height, stretch_ascent);
 		}
 	    }
 
@@ -24077,6 +24288,7 @@ display_count_lines_logically (ptrdiff_t start_byte, ptrdiff_t limit_byte,
   ptrdiff_t val;
   specpdl_ref pdl_count = SPECPDL_INDEX ();
   record_unwind_protect (save_restriction_restore, save_restriction_save ());
+  labeled_restrictions_remove_in_current_buffer ();
   Fwiden ();
   val = display_count_lines (start_byte, limit_byte, count, byte_pos_ptr);
   unbind_to (pdl_count, Qnil);
@@ -26875,7 +27087,7 @@ display_mode_element (struct it *it, int depth, int field_width, int precision,
 
 		    oprops = Fcopy_sequence (oprops);
 		    tem = props;
-		    while (CONSP (tem))
+		    while (CONSP (tem) && CONSP (XCDR (tem)))
 		      {
 			oprops = plist_put (oprops, XCAR (tem),
 					    XCAR (XCDR (tem)));
@@ -27428,6 +27640,8 @@ are the selected window and the WINDOW's buffer).  */)
   if (NILP (buffer))
     buffer = w->contents;
   CHECK_BUFFER (buffer);
+  if (!BUFFER_LIVE_P (XBUFFER (buffer)))
+    error ("Attempt to format a mode line for a dead buffer");
 
   /* Make formatting the modeline a non-op when noninteractive, otherwise
      there will be problems later caused by a partially initialized frame.  */
@@ -29283,6 +29497,7 @@ fill_gstring_glyph_string (struct glyph_string *s, int face_id,
 			   int start, int end, int overlaps)
 {
   struct glyph *glyph, *last;
+  int voffset;
   Lisp_Object lgstring;
   int i;
   bool glyph_not_available_p;
@@ -29290,6 +29505,7 @@ fill_gstring_glyph_string (struct glyph_string *s, int face_id,
   s->for_overlaps = overlaps;
   glyph = s->row->glyphs[s->area] + start;
   last = s->row->glyphs[s->area] + end;
+  voffset = glyph->voffset;
   glyph_not_available_p = glyph->glyph_not_available_p;
   s->cmp_id = glyph->u.cmp.id;
   s->cmp_from = glyph->slice.cmp.from;
@@ -29339,6 +29555,9 @@ fill_gstring_glyph_string (struct glyph_string *s, int face_id,
      characters of the glyph string.  */
   if (glyph_not_available_p)
     s->font_not_found_p = true;
+
+  /* Adjust base line for subscript/superscript text.  */
+  s->ybase += voffset;
 
   return glyph - s->row->glyphs[s->area];
 }
@@ -31559,9 +31778,12 @@ produce_glyphless_glyph (struct it *it, bool for_no_font, Lisp_Object acronym)
   int len;
 
   /* Get the metrics of the base font.  We always refer to the current
-     ASCII face.  */
-  face = FACE_FROM_ID (it->f, it->face_id)->ascii_face;
-  font = face->font ? face->font : FRAME_FONT (it->f);
+     ASCII face, but if some faulty setup of fontsets causes that to
+     be NULL, we fall back to the frame's default font.  */
+  face = FACE_FROM_ID_OR_NULL (it->f, it->face_id);
+  if (face)
+    face = face->ascii_face;
+  font = (face && face->font) ? face->font : FRAME_FONT (it->f);
   normal_char_ascent_descent (font, -1, &it->ascent, &it->descent);
   it->ascent += font->baseline_offset;
   it->descent -= font->baseline_offset;
@@ -36227,6 +36449,8 @@ be let-bound around code that needs to disable messages temporarily. */);
   DEFSYM (QCfile, ":file");
   DEFSYM (Qfontified, "fontified");
   DEFSYM (Qfontification_functions, "fontification-functions");
+  DEFSYM (Qlong_line_optimizations_in_fontification_functions,
+	  "long-line-optimizations-in-fontification-functions");
 
   /* Name of the symbol which disables Lisp evaluation in 'display'
      properties.  This is used by enriched.el.  */
@@ -36428,7 +36652,7 @@ This is used for internal purposes.  */);
   Vinhibit_redisplay = Qnil;
 
   DEFVAR_LISP ("global-mode-string", Vglobal_mode_string,
-    doc: /* String (or mode line construct) included (normally) in `mode-line-format'.  */);
+    doc: /* String (or mode line construct) included (normally) in `mode-line-misc-info'.  */);
   Vglobal_mode_string = Qnil;
 
   DEFVAR_LISP ("overlay-arrow-position", Voverlay_arrow_position,
@@ -36438,14 +36662,15 @@ See also `overlay-arrow-string'.  */);
   Voverlay_arrow_position = Qnil;
 
   DEFVAR_LISP ("overlay-arrow-string", Voverlay_arrow_string,
-    doc: /* String to display as an arrow in non-window frames.
+    doc: /* String to display as an arrow in text-mode frames.
 See also `overlay-arrow-position'.  */);
   Voverlay_arrow_string = build_pure_c_string ("=>");
 
   DEFVAR_LISP ("overlay-arrow-variable-list", Voverlay_arrow_variable_list,
     doc: /* List of variables (symbols) which hold markers for overlay arrows.
 The symbols on this list are examined during redisplay to determine
-where to display overlay arrows.  */);
+where to display overlay arrows.
+See also `overlay-arrow-string'.  */);
   Voverlay_arrow_variable_list
     = list1 (intern_c_string ("overlay-arrow-position"));
 
@@ -36567,9 +36792,11 @@ which no explicit name has been set (see `modify-frame-parameters').  */);
   DEFVAR_LISP ("icon-title-format", Vicon_title_format,
     doc: /* Template for displaying the title bar of an iconified frame.
 \(Assuming the window manager supports this feature.)
-This variable has the same structure as `mode-line-format' (which see),
-and is used only on frames for which no explicit name has been set
-\(see `modify-frame-parameters').  */);
+If the value is a string, it should have the same structure
+as `mode-line-format' (which see), and is used only on frames
+for which no explicit name has been set \(see `modify-frame-parameters').
+If the value is t, that means use `frame-title-format' for
+iconified frames.  */);
   /* Do not nest calls to pure_list.  This works around a bug in
      Oracle Developer Studio 12.6.  */
   Lisp_Object icon_title_name_format
@@ -36736,12 +36963,11 @@ Each function is called with one argument POS.  Functions must
 fontify a region starting at POS in the current buffer, and give
 fontified regions the property `fontified' with a non-nil value.
 
-Note that, when the buffer contains one or more lines whose length is
-above `long-line-threshold', these functions are called with the
-buffer narrowed to a small portion around POS (whose size is specified
-by `long-line-locked-narrowing-region-size'), and the narrowing is
-locked (see `narrowing-lock'), so that these functions cannot use
-`widen' to gain access to other portions of buffer text.  */);
+Note that, when `long-line-optimizations-p' is non-nil in the buffer,
+these functions are called as if they were in a `with-restriction' form,
+with a `long-line-optimizations-in-fontification-functions' label and
+with the buffer narrowed to a portion around POS whose size is
+specified by `long-line-optimizations-region-size'.  */);
   Vfontification_functions = Qnil;
   Fmake_variable_buffer_local (Qfontification_functions);
 
@@ -36883,7 +37109,7 @@ shown in a window.  Absolute line numbers count from the beginning of
 the current narrowing, or from buffer beginning.  The variable
 `display-line-numbers-offset', if non-zero, is a signed offset added
 to each absolute line number; it also forces line numbers to be counted
-from the beginning of the buffer, as if `display-line-numbers-wide'
+from the beginning of the buffer, as if `display-line-numbers-widen'
 were non-nil.  It has no effect when line numbers are not absolute.
 
 If the value is `relative', display for each line not containing the

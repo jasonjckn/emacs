@@ -1,8 +1,8 @@
 ;;; comp-tests.el --- unit tests for src/comp.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2024 Free Software Foundation, Inc.
 
-;; Author: Andrea Corallo <akrl@sdf.org>
+;; Author: Andrea Corallo <acorallo@gnu.org>
 
 ;; This file is part of GNU Emacs.
 
@@ -62,6 +62,7 @@
 
 
 
+(defvar native-comp-eln-load-path)
 (ert-deftest comp-tests-bootstrap ()
   "Compile the compiler and load it to compile it-self.
 Check that the resulting binaries do not differ."
@@ -70,9 +71,11 @@ Check that the resulting binaries do not differ."
     :suffix "-comp-stage1.el"
     (ert-with-temp-file comp2-src
       :suffix "-comp-stage2.el"
-      (let* ((byte+native-compile t)     ; FIXME HACK
+      (let* ((byte+native-compile t)
+             (native-compile-target-directory
+              (car (last native-comp-eln-load-path)))
              (comp-src (expand-file-name "../../../lisp/emacs-lisp/comp.el"
-                                     (ert-resource-directory)))
+                                         (ert-resource-directory)))
              ;; Can't use debug symbols.
              (native-comp-debug 0))
         (copy-file comp-src comp1-src t)
@@ -446,7 +449,7 @@ https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-03/msg00914.html."
           (should (equal comp-test-primitive-advice '(3 4))))
       (advice-remove #'+ f))))
 
-(defvar comp-test-primitive-redefine-args)
+(defvar comp-test-primitive-redefine-args nil)
 (comp-deftest primitive-redefine ()
   "Test effectiveness of primitive redefinition."
   (cl-letf ((comp-test-primitive-redefine-args nil)
@@ -531,6 +534,22 @@ https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-03/msg00914.html."
   "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2022-07/msg00666.html>"
   (should (subr-native-elisp-p
            (symbol-function 'comp-test-48029-nonascii-žžž-f))))
+
+(comp-deftest 61917-1 ()
+  "Verify we can compile calls to redefined primitives with
+dedicated byte-op code."
+  (let (x
+        (f (lambda (fn &rest args)
+             (setq comp-test-primitive-redefine-args args))))
+    (advice-add #'delete-region :around f)
+    (unwind-protect
+        (setf x (native-compile
+                 '(lambda ()
+                    (delete-region 1 2))))
+      (should (subr-native-elisp-p x))
+      (funcall x)
+      (advice-remove #'delete-region f)
+      (should (equal comp-test-primitive-redefine-args '(1 2))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;

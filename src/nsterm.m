@@ -1,6 +1,6 @@
 /* NeXT/Open/GNUstep / macOS communication module.      -*- coding: utf-8 -*-
 
-Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2022 Free Software
+Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2024 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -554,29 +554,32 @@ ns_init_locale (void)
 /* macOS doesn't set any environment variables for the locale when run
    from the GUI. Get the locale from the OS and set LANG.  */
 {
-  NSLocale *locale = [NSLocale currentLocale];
-
   NSTRACE ("ns_init_locale");
 
-  /* If we were run from a terminal then assume an unset LANG variable
-     is intentional and don't try to "fix" it.  */
-  if (!isatty (STDIN_FILENO))
+  /* Either use LANG, if set, or try to construct LANG from
+     NSLocale.  */
+  const char *lang = getenv ("LANG");
+  if (lang == NULL || *lang == 0)
     {
-      char *oldLocale = setlocale (LC_ALL, NULL);
-      /* It seems macOS should probably use UTF-8 everywhere.
-         'localeIdentifier' does not specify the encoding, and I can't
-         find any way to get the OS to tell us which encoding to use,
-         so hard-code '.UTF-8'.  */
-      NSString *localeID = [NSString stringWithFormat:@"%@.UTF-8",
-                                     [locale localeIdentifier]];
-
-      /* Check the locale ID is valid and if so set LANG, but not if
-         it is already set.  */
-      if (setlocale (LC_ALL, [localeID UTF8String]))
-        setenv("LANG", [localeID UTF8String], 0);
-
-      setlocale (LC_ALL, oldLocale);
+      const NSLocale *locale = [NSLocale currentLocale];
+      const NSString *localeID = [NSString stringWithFormat:@"%@.UTF-8",
+					   [locale localeIdentifier]];
+      lang = [localeID UTF8String];
     }
+
+  /* Check if LANG can be used for initializing the locale.  If not,
+     use a default setting.  Note that Emacs' main will undo the
+     setlocale below, initializing the locale from the
+     environment.  */
+  if (setlocale (LC_ALL, lang) == NULL)
+    {
+      const char *const default_lang = "en_US.UTF-8";
+      fprintf (stderr, "LANG=%s cannot be used, using %s instead.\n",
+	       lang, default_lang);
+      lang = default_lang;
+    }
+
+  setenv ("LANG", lang, 1);
 }
 
 
@@ -2704,11 +2707,12 @@ ns_scroll_run (struct window *w, struct run *run)
   {
     NSRect srcRect = NSMakeRect (x, from_y, width, height);
     NSPoint dest = NSMakePoint (x, to_y);
+    NSRect destRect = NSMakeRect (x, from_y, width, height);
     EmacsView *view = FRAME_NS_VIEW (f);
 
     [view copyRect:srcRect to:dest];
 #ifdef NS_IMPL_COCOA
-    [view setNeedsDisplayInRect:srcRect];
+    [view setNeedsDisplayInRect:destRect];
 #endif
   }
 
@@ -3750,14 +3754,18 @@ ns_maybe_dumpglyphs_background (struct glyph_string *s, char force_p)
 	{
           struct face *face = s->face;
           if (!face->stipple)
-	    {
-	      if (s->hl != DRAW_CURSOR)
-		[(NS_FACE_BACKGROUND (face) != 0
-		  ? [NSColor colorWithUnsignedLong:NS_FACE_BACKGROUND (face)]
-		  : FRAME_BACKGROUND_COLOR (s->f)) set];
-	      else
-		[FRAME_CURSOR_COLOR (s->f) set];
-	    }
+            {
+              if (s->hl != DRAW_CURSOR)
+                [(NS_FACE_BACKGROUND (face) != 0
+                  ? [NSColor colorWithUnsignedLong:NS_FACE_BACKGROUND (face)]
+                  : FRAME_BACKGROUND_COLOR (s->f)) set];
+              else if (face && (NS_FACE_BACKGROUND (face)
+                                == [(NSColor *) FRAME_CURSOR_COLOR (s->f)
+                                                unsignedLong]))
+                [[NSColor colorWithUnsignedLong:NS_FACE_FOREGROUND (face)] set];
+              else
+                [FRAME_CURSOR_COLOR (s->f) set];
+            }
           else
             {
               struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (s->f);
@@ -6120,6 +6128,11 @@ ns_term_shutdown (int sig)
 
 */
 
+- (BOOL) applicationSupportsSecureRestorableState: (NSApplication *)app
+{
+  return YES;
+}
+
 - (void) terminate: (id)sender
 {
   struct input_event ie;
@@ -7935,6 +7948,10 @@ ns_in_echo_area (void)
   [self setLayerContentsRedrawPolicy:
           NSViewLayerContentsRedrawOnSetNeedsDisplay];
   [self setLayerContentsPlacement:NSViewLayerContentsPlacementTopLeft];
+
+  /* initWithEmacsFrame can't create the toolbar before the layer is
+     set, so have another go at creating the toolbar here.  */
+  [(EmacsWindow*)[self window] createToolbar:f];
 #endif
 
   if (ns_drag_types)
@@ -8582,6 +8599,10 @@ ns_in_echo_area (void)
   return self;
 }
 
+- (BOOL) validateToolbarItem: (NSToolbarItem *) toolbarItem
+{
+  return [toolbarItem isEnabled];
+}
 
 - (instancetype)toggleToolbar: (id)sender
 {
@@ -9175,10 +9196,17 @@ ns_in_echo_area (void)
 
 - (void)createToolbar: (struct frame *)f
 {
-  if (FRAME_UNDECORATED (f) || !FRAME_EXTERNAL_TOOL_BAR (f))
+  if (FRAME_UNDECORATED (f) || !FRAME_EXTERNAL_TOOL_BAR (f) || [self toolbar] != nil)
     return;
 
   EmacsView *view = (EmacsView *)FRAME_NS_VIEW (f);
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+  /* If the view's layer isn't an EmacsLayer then we can't create the
+     toolbar yet.  */
+  if (! [[view layer] isKindOfClass:[EmacsLayer class]])
+    return;
+#endif
 
   EmacsToolbar *toolbar = [[EmacsToolbar alloc]
                             initForView:view

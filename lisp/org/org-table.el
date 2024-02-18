@@ -1,6 +1,6 @@
 ;;; org-table.el --- The Table Editor for Org        -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2024 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Keywords: outlines, hypermedia, calendar, wp
@@ -41,6 +41,7 @@
 (require 'org-macs)
 (require 'org-compat)
 (require 'org-keys)
+(require 'org-fold-core)
 
 (declare-function calc-eval "calc" (str &optional separator &rest args))
 (declare-function face-remap-remove-relative "face-remap" (cookie))
@@ -476,6 +477,7 @@ This may be useful when columns have been shrunk."
       (format "|%s" (mapconcat #'identity (reverse str) "")))))
 
 (defvar-local org-table-header-overlay nil)
+(put 'org-table-header-overlay 'permanent-local t)
 (defun org-table-header-set-header ()
   "Display the header of the table at point."
   (let ((gcol temporary-goal-column))
@@ -1228,7 +1230,7 @@ Return t when the line exists, nil if it does not exist."
     (if (looking-at "|[^|\n]+")
 	(let* ((pos (match-beginning 0))
 	       (match (match-string 0))
-	       (len (org-string-width match)))
+	       (len (save-match-data (org-string-width match))))
 	  (replace-match (concat "|" (make-string (1- len) ?\ )))
 	  (goto-char (+ 2 pos))
 	  (substring match 1)))))
@@ -1724,8 +1726,12 @@ In particular, this does handle wide and invisible characters."
       (setq s (mapconcat (lambda (x) (if (member x '(?| ?+)) "|" " ")) s ""))
     (while (string-match "|\\([ \t]*?[^ \t\r\n|][^\r\n|]*\\)|" s)
       (setq s (replace-match
-	       (concat "|" (make-string (org-string-width (match-string 1 s))
-					?\ ) "|")
+	       (concat "|"
+                       (make-string
+                        (save-match-data
+                          (org-string-width (match-string 1 s)))
+			?\ )
+                       "|")
 	       t t s)))
     s))
 
@@ -2613,6 +2619,7 @@ location of point."
 
 	(if lispp
 	    (setq ev (condition-case nil
+                         ;; FIXME: Arbitrary code evaluation.
 			 (eval (eval (read form)))
 		       (error "#ERROR"))
 		  ev (if (numberp ev) (number-to-string ev) ev)
@@ -3806,6 +3813,7 @@ FACE, when non-nil, for the highlight."
 
 (defvar-local org-table-coordinate-overlays nil
   "Collects the coordinate grid overlays, so that they can be removed.")
+(put 'org-table-coordinate-overlays 'permanent-local t)
 
 (defun org-table-overlay-coordinates ()
   "Add overlays to the table at point, to show row/column coordinates."
@@ -4448,6 +4456,13 @@ FIELD is a string.  WIDTH is a number.  ALIGN is either \"c\",
 (defun org-table-justify-field-maybe (&optional new)
   "Justify the current field, text to left, number to right.
 Optional argument NEW may specify text to replace the current field content."
+  ;; FIXME: Prevent newlines inside field.  They are currently not
+  ;; supported.
+  (when (and (stringp new) (string-match-p "\n" new))
+    (message "Removing newlines from formula result: %S" new)
+    (setq new (replace-regexp-in-string
+               "\n" " "
+               (replace-regexp-in-string "\\(^\n+\\)\\|\\(\n+$\\)" "" new))))
   (cond
    ((and (not new) org-table-may-need-update)) ; Realignment will happen anyway
    ((org-at-table-hline-p))
@@ -4879,7 +4894,7 @@ This function sets up the following dynamically scoped variables:
 			(push (cons field v) org-table-local-parameters)
 			(push (list field line col)
 			      org-table-named-field-locations))))))))))
-      ;; Re-use existing markers when possible.
+      ;; Reuse existing markers when possible.
       (if (markerp org-table-current-begin-pos)
 	  (move-marker org-table-current-begin-pos (point))
 	(setq org-table-current-begin-pos (point-marker)))
@@ -5401,12 +5416,10 @@ overwritten, and the table is not marked as requiring realignment."
 	(self-insert-command N))
     (setq org-table-may-need-update t)
     (let* (orgtbl-mode
-	   a
 	   (cmd (or (key-binding
 		     (or (and (listp function-key-map)
-			      (setq a (assoc last-input-event function-key-map))
-			      (cdr a))
-			 (vector last-input-event)))
+			      (cdr (assoc last-command-event function-key-map)))
+			 (vector last-command-event)))
 		    'self-insert-command)))
       (call-interactively cmd)
       (if (and org-self-insert-cluster-for-undo
@@ -5721,31 +5734,32 @@ This may be either a string or a function of two arguments:
     ;; Initialize communication channel in INFO.
     (with-temp-buffer
       (let ((org-inhibit-startup t)) (org-mode))
-      (let ((standard-output (current-buffer))
-	    (org-element-use-cache nil))
-	(dolist (e table)
-	  (cond ((eq e 'hline) (princ "|--\n"))
-		((consp e)
-		 (princ "| ") (dolist (c e) (princ c) (princ " |"))
-		 (princ "\n")))))
-      (org-element-cache-reset)
-      ;; Add back-end specific filters, but not user-defined ones.  In
-      ;; particular, make sure to call parse-tree filters on the
-      ;; table.
-      (setq info
-	    (let ((org-export-filters-alist nil))
-	      (org-export-install-filters
-	       (org-combine-plists
-		(org-export-get-environment backend nil params)
-		`(:back-end ,(org-export-get-backend backend))))))
-      (setq data
-	    (org-export-filter-apply-functions
-	     (plist-get info :filter-parse-tree)
-	     (org-element-map (org-element-parse-buffer) 'table
-	       #'identity nil t)
-	     info)))
-    (when (and backend (symbolp backend) (not (org-export-get-backend backend)))
-      (user-error "Unknown :backend value"))
+      (org-fold-core-ignore-modifications
+        (let ((standard-output (current-buffer))
+	      (org-element-use-cache nil))
+	  (dolist (e table)
+	    (cond ((eq e 'hline) (princ "|--\n"))
+		  ((consp e)
+		   (princ "| ") (dolist (c e) (princ c) (princ " |"))
+		   (princ "\n")))))
+        (org-element-cache-reset)
+        ;; Add back-end specific filters, but not user-defined ones.  In
+        ;; particular, make sure to call parse-tree filters on the
+        ;; table.
+        (setq info
+	      (let ((org-export-filters-alist nil))
+	        (org-export-install-filters
+	         (org-combine-plists
+		  (org-export-get-environment backend nil params)
+		  `(:back-end ,(org-export-get-backend backend))))))
+        (setq data
+	      (org-export-filter-apply-functions
+	       (plist-get info :filter-parse-tree)
+	       (org-element-map (org-element-parse-buffer) 'table
+	         #'identity nil t)
+	       info))
+        (when (and backend (symbolp backend) (not (org-export-get-backend backend)))
+          (user-error "Unknown :backend value"))))
     (when (or (not backend) (plist-get info :raw)) (require 'ox-org))
     ;; Handle :skip parameter.
     (let ((skip (plist-get info :skip)))

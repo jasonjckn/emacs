@@ -1,6 +1,6 @@
 /* Header for NS Cocoa part of xwidget and webkit widget.
 
-Copyright (C) 2019-2022 Free Software Foundation, Inc.
+Copyright (C) 2019-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -31,15 +31,17 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* Functions for xwidget webkit.  */
 
-bool nsxwidget_is_web_view (struct xwidget *xw);
-Lisp_Object nsxwidget_webkit_uri (struct xwidget *xw);
-Lisp_Object nsxwidget_webkit_title (struct xwidget *xw);
-void nsxwidget_webkit_goto_uri (struct xwidget *xw, const char *uri);
-void nsxwidget_webkit_goto_history (struct xwidget *xw, int rel_pos);
+bool nsxwidget_is_web_view(struct xwidget *xw);
+Lisp_Object nsxwidget_webkit_uri(struct xwidget *xw);
+Lisp_Object nsxwidget_webkit_title(struct xwidget *xw);
+void nsxwidget_webkit_goto_uri(struct xwidget *xw, const char *uri);
+void nsxwidget_webkit_goto_history(struct xwidget *xw, int rel_pos);
 double nsxwidget_webkit_get_estimated_load_progress(struct xwidget *xw);
-void nsxwidget_webkit_zoom (struct xwidget *xw, double zoom_change);
-void nsxwidget_webkit_execute_script (struct xwidget *xw, const char *script,
-                                      Lisp_Object fun);
+double nsxwidget_webkit_estimated_load_progress(struct xwidget *xw);
+void nsxwidget_webkit_stop_loading(struct xwidget *xw);
+void nsxwidget_webkit_zoom(struct xwidget *xw, double zoom_change);
+void nsxwidget_webkit_execute_script(struct xwidget *xw, const char *script,
+                                     Lisp_Object fun);
 
 /* Functions for xwidget model.  */
 
@@ -49,10 +51,10 @@ void nsxwidget_webkit_execute_script (struct xwidget *xw, const char *script,
 @end
 #endif
 
-void nsxwidget_init (struct xwidget *xw);
-void nsxwidget_kill (struct xwidget *xw);
-void nsxwidget_resize (struct xwidget *xw);
-Lisp_Object nsxwidget_get_size (struct xwidget *xw);
+void nsxwidget_init(struct xwidget *xw);
+void nsxwidget_kill(struct xwidget *xw);
+void nsxwidget_resize(struct xwidget *xw);
+Lisp_Object nsxwidget_get_size(struct xwidget *xw);
 
 /* Functions for xwidget view.  */
 
@@ -63,19 +65,16 @@ Lisp_Object nsxwidget_get_size (struct xwidget *xw);
 @end
 #endif
 
-void nsxwidget_init_view (struct xwidget_view *xv,
-                          struct xwidget *xww,
-                          struct glyph_string *s,
-                          int x, int y);
-void nsxwidget_delete_view (struct xwidget_view *xv);
+void nsxwidget_init_view(struct xwidget_view *xv, struct xwidget *xww,
+                         struct glyph_string *s, int x, int y);
+void nsxwidget_delete_view(struct xwidget_view *xv);
 
-void nsxwidget_show_view (struct xwidget_view *xv);
-void nsxwidget_hide_view (struct xwidget_view *xv);
-void nsxwidget_resize_view (struct xwidget_view *xv,
-                            int widget, int height);
+void nsxwidget_show_view(struct xwidget_view *xv);
+void nsxwidget_hide_view(struct xwidget_view *xv);
+void nsxwidget_resize_view(struct xwidget_view *xv, int widget, int height);
 
-void nsxwidget_move_view (struct xwidget_view *xv, int x, int y);
-void nsxwidget_move_widget_in_view (struct xwidget_view *xv, int x, int y);
-void nsxwidget_set_needsdisplay (struct xwidget_view *xv);
+void nsxwidget_move_view(struct xwidget_view *xv, int x, int y);
+void nsxwidget_move_widget_in_view(struct xwidget_view *xv, int x, int y);
+void nsxwidget_set_needsdisplay(struct xwidget_view *xv);
 
 #endif /* NSXWIDGET_H_INCLUDED */

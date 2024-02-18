@@ -1,6 +1,6 @@
 ;;; dired.el --- directory-browsing commands -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1992-1997, 2000-2022 Free Software
+;; Copyright (C) 1985-1986, 1992-1997, 2000-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>
@@ -122,7 +122,9 @@ If nil, don't pass \"--dired\" to \"ls\".
 The special value of `unspecified' means to check whether \"ls\"
 supports the \"--dired\" option, and save the result in this
 variable.  This is performed the first time `dired-insert-directory'
-is invoked.
+is invoked.  (If `ls-lisp' is used by default, the test is performed
+only if `ls-lisp-use-insert-directory-program' is non-nil, i.e., if
+Dired actually uses \"ls\".)
 
 Note that if you set this option to nil, either through choice or
 because your \"ls\" program does not support \"--dired\", Dired
@@ -218,14 +220,19 @@ If t, they are marked if and as the files linked to were marked.
 If a character, new links are unconditionally marked with that character.")
 
 (defcustom dired-free-space 'first
-  "Whether and how to display the amount of free disk space in Dired buffers.
+  "Whether and how to display the disk space usage info in Dired buffers.
 If nil, don't display.
-If `separate', display on a separate line (along with used count).
-If `first', display only the free disk space on the first line,
-following the directory name."
-  :type '(choice (const :tag "On a separate line" separate)
-                 (const :tag "On the first line, after directory name" first)
-                 (const :tag "Don't display" nil))
+If `separate', display on a separate line, and include both the used
+and the free disk space.
+If `first', the default, display only the free disk space on the first
+line, following the directory name."
+  :type '(choice (const
+                  :tag
+                  "On separate line, display both used and free space" separate)
+                 (const
+                  :tag
+                  "On first line, after directory name, display only free space" first)
+                 (const :tag "Don't display disk space usage" nil))
   :version "29.1"
   :group 'dired)
 
@@ -289,7 +296,7 @@ then this will always be equivalent to `move'."
                (revert-buffer nil t)))))
   :type '(choice (const :tag "Don't allow dragging" nil)
                  (const :tag "Copy file to new location" t)
-                 (const :tag "Move file to new location" t)
+                 (const :tag "Move file to new location" move)
                  (const :tag "Create symbolic link to file" link))
   :group 'dired
   :version "29.1")
@@ -346,7 +353,7 @@ with the buffer narrowed to the listing."
   :type 'boolean)
 
 (defcustom dired-initial-position-hook nil
-  "This hook is used to position the point.
+  "Hook used to position point in a new Dired listing display.
 It is run by the function `dired-initial-position'."
   :group 'dired
   :type 'hook
@@ -789,7 +796,7 @@ Subexpression 2 must end right before the \\n.")
                '(dired-move-to-filename)
                nil
                '(1 dired-symlink-face)
-               '(2 '(face dired-directory-face dired-symlink-filename t))))
+               '(2 `(face ,dired-directory-face dired-symlink-filename t))))
    ;;
    ;; Symbolic link to a non-directory.
    (list dired-re-sym
@@ -1659,7 +1666,9 @@ see `dired-use-ls-dired' for more details.")
              (when (file-remote-p dir)
                (setq switches (string-replace "--dired" "" switches)))
              (let* ((default-directory (car dir-wildcard))
-                    (script (format "ls %s %s" switches (cdr dir-wildcard)))
+                    (script (format "%s %s %s"
+                                    insert-directory-program
+                                    switches (cdr dir-wildcard)))
                     (remotep (file-remote-p dir))
                     (sh (or (and remotep "/bin/sh")
                             (executable-find shell-file-name)
@@ -1769,7 +1778,10 @@ see `dired-use-ls-dired' for more details.")
          ((eq dired-free-space 'separate)
 	  (end-of-line)
 	  (insert " available " available)
-          (forward-line 1)
+          ;; The separate free-space line is considered part of the
+          ;; directory content, for the purposes of
+          ;; 'dired-hide-details-mode'.
+          (beginning-of-line)
           (point))
          ((eq dired-free-space 'first)
           (goto-char beg)
@@ -1929,9 +1941,22 @@ mouse-2: visit this file in other window"
               keymap ,(let* ((current-dir dir)
                              (click (lambda ()
                                       (interactive)
-                                      (if (assoc current-dir dired-subdir-alist)
-                                          (dired-goto-subdir current-dir)
-                                        (dired current-dir)))))
+                                      (cond
+                                       ((assoc current-dir dired-subdir-alist)
+                                        (dired-goto-subdir current-dir))
+                                       ;; If there is a wildcard chars
+                                       ;; in the directory name, don't
+                                       ;; use the alternate file machinery
+                                       ;; which tries to keep only one
+                                       ;; dired buffer open at once.
+                                       ;;
+                                       ;; FIXME: Is this code path reachable?
+                                       ((insert-directory-wildcard-in-dir-p
+                                         current-dir)
+                                        (dired current-dir))
+                                       (t
+                                        (dired--find-possibly-alternative-file
+                                         current-dir))))))
                         (define-keymap
                           "<mouse-2>" click
                           "<follow-link>" 'mouse-face
@@ -2728,7 +2753,8 @@ directory in another window."
 (defun dired--find-possibly-alternative-file (file)
   "Find FILE, but respect `dired-kill-when-opening-new-dired-buffer'."
   (if (and dired-kill-when-opening-new-dired-buffer
-           (file-directory-p file))
+           (file-directory-p file)
+           (< (length (get-buffer-window-list)) 2))
       (progn
         (set-buffer-modified-p nil)
         (dired--find-file #'find-alternate-file file))
@@ -2764,10 +2790,11 @@ This kills the Dired buffer, then visits the current line's file or directory."
 The optional arguments FIND-FILE-FUNC and FIND-DIR-FUNC specify
 functions to visit the file and directory, respectively.  If
 omitted or nil, these arguments default to `find-file' and `dired',
-respectively."
+respectively.  If `dired-kill-when-opening-new-dired-buffer' is
+non-nil, FIND-DIR-FUNC defaults to `find-alternate-file' instead,
+so that the original Dired buffer is not kept."
   (interactive "e")
   (or find-file-func (setq find-file-func 'find-file))
-  (or find-dir-func (setq find-dir-func 'dired))
   (let (window pos file)
     (save-excursion
       (setq window (posn-window (event-end event))
@@ -2775,6 +2802,12 @@ respectively."
       (if (not (windowp window))
 	  (error "No file chosen"))
       (set-buffer (window-buffer window))
+      (unless find-dir-func
+        (setq find-dir-func
+              (if (and dired-kill-when-opening-new-dired-buffer
+                       (< (length (get-buffer-window-list)) 2))
+                  'find-alternate-file
+                'dired)))
       (goto-char pos)
       (setq file (dired-get-file-for-visit)))
     (if (file-directory-p file)
@@ -3533,9 +3566,9 @@ as returned by `dired-get-filename'.  LIMIT is the search limit."
 
 ;; FIXME document whatever dired-x is doing.
 (defun dired-initial-position (dirname)
-  "Where point should go in a new listing of DIRNAME.
-Point is assumed to be at the beginning of new subdir line.
-It runs the hook `dired-initial-position-hook'."
+  "Return position of point in a new listing of DIRNAME.
+Point is assumed to be at the beginning of a new subdir line.
+Runs the hook `dired-initial-position-hook'."
   (end-of-line)
   (and (featurep 'dired-x) dired-find-subdir
        (dired-goto-subdir dirname))
@@ -3873,13 +3906,20 @@ or \"* [3 files]\"."
 	(format "%c [%d files]" dired-marker-char count)))))
 
 (defcustom dired-no-confirm nil
-  "A list of symbols for commands Dired should not confirm, or t.
-Command symbols are `byte-compile', `chgrp', `chmod', `chown', `compress',
-`copy', `delete', `hardlink', `load', `move', `print', `shell', `symlink',
-`touch' and `uncompress'.
-If t, confirmation is never needed."
+  "Dired commands for which Dired should not popup list of affected files, or t.
+
+If non-nil, Dired will not pop up the list of files to be affected by
+some Dired commands, when asking for confirmation.  (Dired will still
+ask for confirmation, just without showing the affected files.)
+
+If the value is t, the list of affected files is never popped up.
+The value can also be a list of command symbols: then the list of the
+affected files will not be popped up only for the corresponding Dired
+commands.  Recognized command symbols are `byte-compile', `chgrp',
+`chmod', `chown', `compress', `copy', `delete', `hardlink', `load',
+`move', `print', `shell', `symlink', `touch' and `uncompress'."
   :group 'dired
-  :type '(choice (const :tag "Confirmation never needed" t)
+  :type '(choice (const :tag "Affected files never shown" t)
 		 (set (const byte-compile) (const chgrp)
 		      (const chmod) (const chown) (const compress)
 		      (const copy) (const delete) (const hardlink)
@@ -4070,6 +4110,11 @@ this subdir."
        (prefix-numeric-value arg)
        (lambda ()
          (when (or (not (looking-at-p dired-re-dot))
+                   ;; Don't skip symlinks to ".", "..", etc.
+                   (save-excursion
+                     (re-search-forward
+                      dired-permission-flags-regexp nil t)
+                     (eq (char-after (match-beginning 1)) ?l))
                    (not (equal dired-marker-char dired-del-marker)))
            (delete-char 1)
            (insert dired-marker-char))))))))
@@ -4882,9 +4927,9 @@ Interactively with prefix argument, read FILE-NAME."
 
 (defvar-keymap dired-jump-map
   :doc "Keymap to repeat `dired-jump'.  Used in `repeat-mode'."
+  :repeat t
   "j"   #'dired-jump
   "C-j" #'dired-jump)
-(put 'dired-jump 'repeat-map 'dired-jump-map)
 
 
 ;;; Miscellaneous commands

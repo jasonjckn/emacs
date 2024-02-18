@@ -1,6 +1,6 @@
 ;;; ob-core.el --- Working with Code Blocks          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2009-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2024 Free Software Foundation, Inc.
 
 ;; Authors: Eric Schulte
 ;;	Dan Davison
@@ -1690,6 +1690,7 @@ shown below.
 			 (append
 			  (split-string (if (stringp raw-result)
 					    raw-result
+                                          ;; FIXME: Arbitrary code evaluation.
 					  (eval raw-result t)))
 			  (cdr (assq :result-params params))))))
     (append
@@ -1931,12 +1932,12 @@ buffer or nil if no such result exists."
 
 (defun org-babel-result-names (&optional file)
   "Return the names of results in FILE or the current buffer."
-  (save-excursion
-    (when file (find-file file)) (goto-char (point-min))
-    (let ((case-fold-search t) names)
+  (with-current-buffer (if file (find-file-noselect file) (current-buffer))
+    (org-with-point-at 1
+      (let ((case-fold-search t) names)
       (while (re-search-forward org-babel-result-w-name-regexp nil t)
 	(setq names (cons (match-string-no-properties 9) names)))
-      names)))
+      names))))
 
 ;;;###autoload
 (defun org-babel-next-src-block (&optional arg)
@@ -2357,7 +2358,7 @@ INFO may provide the values of these header arguments (in the
           using the argument supplied to specify the export block
           or snippet type."
   (cond ((stringp result)
-	 (setq result (org-no-properties result))
+	 (setq result (substring-no-properties result))
 	 (when (member "file" result-params)
 	   (setq result
                  (org-babel-result-to-file
@@ -2425,7 +2426,8 @@ INFO may provide the values of these header arguments (in the
 		  (delete-region (point) (org-babel-result-end)))
 		 ((member "append" result-params)
 		  (goto-char (org-babel-result-end)) (setq beg (point-marker)))
-		 ((member "prepend" result-params))) ; already there
+		 ;; ((member "prepend" result-params)) ; already there
+                 )
 		(setq results-switches
 		      (if results-switches (concat " " results-switches) ""))
 		(let ((wrap
@@ -2461,10 +2463,19 @@ INFO may provide the values of these header arguments (in the
 		    (insert
 		     (org-trim
 		      (org-list-to-org
+                       ;; We arbitrarily choose to format non-strings
+                       ;; as %S.
 		       (cons 'unordered
 			     (mapcar
 			      (lambda (e)
-				(list (if (stringp e) e (format "%S" e))))
+                                (cond
+                                 ((stringp e) (list e))
+                                 ((listp e)
+                                  (mapcar
+                                   (lambda (x)
+                                     (if (stringp x) x (format "%S" x)))
+                                   e))
+                                 (t (list (format "%S" e)))))
 			      (if (listp result) result
 				(split-string result "\n" t))))
 		       '(:splicep nil :istart "- " :iend "\n")))
@@ -2709,7 +2720,9 @@ specified as an an \"attachment:\" style link."
                 ((and 'attachment (guard in-attach-dir)) "attachment")
                 (_ "file"))
               (if (and request-attachment in-attach-dir)
-                  (file-relative-name result-file-name)
+                  (file-relative-name
+                   result-file-name
+                   (file-name-as-directory attach-dir))
 	        (if (and default-directory
 		         base-file-name same-directory?)
 		    (if (eq org-link-file-path-type 'adaptive)
@@ -2849,6 +2862,7 @@ parameters when merging lists."
 				  (split-string
 				   (cond ((stringp value) value)
                                          ((functionp value) (funcall value))
+                                         ;; FIXME: Arbitrary code evaluation.
                                          (t (eval value t)))))))
 	  (`(:exports . ,value)
 	   (setq exports (funcall merge
@@ -3177,16 +3191,8 @@ situations in which is it not appropriate."
 	((and (not inhibit-lisp-eval)
 	      (or (memq (string-to-char cell) '(?\( ?' ?` ?\[))
 		  (string= cell "*this*")))
-         ;; Prevent arbitrary function calls.
-         (if (and (memq (string-to-char cell) '(?\( ?`))
-                  (not (org-babel-confirm-evaluate
-                      ;; See `org-babel-get-src-block-info'.
-                      (list "emacs-lisp" (format "%S" cell)
-                            '((:eval . yes)) nil (format "%S" cell)
-                            nil nil))))
-             ;; Not allowed.
-             (user-error "Evaluation of elisp code %S aborted." cell)
-	   (eval (read cell) t)))
+         ;; FIXME: Arbitrary code evaluation.
+	 (eval (read cell) t))
 	((save-match-data
            (and (string-match "^[[:space:]]*\"\\(.*\\)\"[[:space:]]*$" cell)
                 (not (string-match "[^\\]\"" (match-string 1 cell)))))
@@ -3272,7 +3278,7 @@ Emacs shutdown.")
       (while (or (not dir) (file-exists-p dir))
         (setq dir (expand-file-name
                    (format "babel-stable-%d" (random 1000))
-                   (temporary-file-directory))))
+                   temporary-file-directory)))
       (make-directory dir)
       dir))
   "Directory to hold temporary files created to execute code blocks.

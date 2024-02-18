@@ -1,6 +1,6 @@
 ;;; python.el --- Python's flying circus support for Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 2003-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2024 Free Software Foundation, Inc.
 
 ;; Author: Fabián E. Gallina <fgallina@gnu.org>
 ;; URL: https://github.com/fgallina/python.el
@@ -415,7 +415,6 @@ instead."
   "Python mode specialized rx macro.
 This variant of `rx' supports common Python named REGEXPS."
   `(rx-let ((sp-bsnl (or space (and ?\\ ?\n)))
-            (sp-nl (or space (and (? ?\\) ?\n)))
             (block-start       (seq symbol-start
                                     (or "def" "class" "if" "elif" "else" "try"
                                         "except" "finally" "for" "while" "with"
@@ -426,7 +425,7 @@ This variant of `rx' supports common Python named REGEXPS."
                                              (or "def" "for" "with")))
                                     symbol-end))
             (dedenter          (seq symbol-start
-                                    (or "elif" "else" "except" "finally")
+                                    (or "elif" "else" "except" "finally" "case")
                                     symbol-end))
             (block-ender       (seq symbol-start
                                     (or
@@ -511,19 +510,28 @@ This variant of `rx' supports common Python named REGEXPS."
       (''string
        `(let ((ppss (or ,syntax-ppss (syntax-ppss))))
           (and (nth 3 ppss) (nth 8 ppss))))
+      (''single-quoted-string
+       `(let ((ppss (or ,syntax-ppss (syntax-ppss))))
+          (and (characterp (nth 3 ppss)) (nth 8 ppss))))
+      (''triple-quoted-string
+       `(let ((ppss (or ,syntax-ppss (syntax-ppss))))
+          (and (eq t (nth 3 ppss)) (nth 8 ppss))))
       (''paren
        `(nth 1 (or ,syntax-ppss (syntax-ppss))))
       (_ form))))
 
 (defun python-syntax-context (type &optional syntax-ppss)
   "Return non-nil if point is on TYPE using SYNTAX-PPSS.
-TYPE can be `comment', `string' or `paren'.  It returns the start
+TYPE can be `comment', `string', `single-quoted-string',
+`triple-quoted-string' or `paren'.  It returns the start
 character address of the specified TYPE."
   (declare (compiler-macro python-syntax--context-compiler-macro))
   (let ((ppss (or syntax-ppss (syntax-ppss))))
     (pcase type
       ('comment (and (nth 4 ppss) (nth 8 ppss)))
       ('string (and (nth 3 ppss) (nth 8 ppss)))
+      ('single-quoted-string (and (characterp (nth 3 ppss)) (nth 8 ppss)))
+      ('triple-quoted-string (and (eq t (nth 3 ppss)) (nth 8 ppss)))
       ('paren (nth 1 ppss))
       (_ nil))))
 
@@ -641,9 +649,9 @@ the {...} holes that appear within f-strings."
              finally return (and result-valid result))))
 
 (defvar python-font-lock-keywords-level-1
-  `((,(python-rx symbol-start "def" (1+ sp-bsnl) (group symbol-name))
+  `((,(python-rx symbol-start "def" (1+ space) (group symbol-name))
      (1 font-lock-function-name-face))
-    (,(python-rx symbol-start "class" (1+ sp-bsnl) (group symbol-name))
+    (,(python-rx symbol-start "class" (1+ space) (group symbol-name))
      (1 font-lock-type-face)))
   "Font lock keywords to use in `python-mode' for level 1 decoration.
 
@@ -783,12 +791,12 @@ sign in chained assignment."
     ;;   [*a] = 5, 6
     ;; are handled separately below
     (,(python-font-lock-assignment-matcher
-        (python-rx (? (or "[" "(") (* sp-nl))
-                   grouped-assignment-target (* sp-nl) ?, (* sp-nl)
-                   (* assignment-target (* sp-nl) ?, (* sp-nl))
-                   (? assignment-target (* sp-nl))
-                   (? ?, (* sp-nl))
-                   (? (or ")" "]") (* sp-bsnl))
+        (python-rx (? (or "[" "(") (* space))
+                   grouped-assignment-target (* space) ?, (* space)
+                   (* assignment-target (* space) ?, (* space))
+                   (? assignment-target (* space))
+                   (? ?, (* space))
+                   (? (or ")" "]") (* space))
                    (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face)
@@ -804,9 +812,9 @@ sign in chained assignment."
     ;;   c: Collection = {1, 2, 3}
     ;;   d: Mapping[int, str] = {1: 'bar', 2: 'baz'}
     (,(python-font-lock-assignment-matcher
-       (python-rx (or line-start ?\;) (* sp-bsnl)
-                  grouped-assignment-target (* sp-bsnl)
-                  (? ?: (* sp-bsnl) (+ not-simple-operator) (* sp-bsnl))
+       (python-rx (or line-start ?\;) (* space)
+                  grouped-assignment-target (* space)
+                  (? ?: (* space) (+ not-simple-operator) (* space))
                   (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face))
@@ -815,10 +823,10 @@ sign in chained assignment."
     ;;   [a] = 5,
     ;;   [*a] = 5, 6
     (,(python-font-lock-assignment-matcher
-       (python-rx (or line-start ?\; ?=) (* sp-bsnl)
-                  (or "[" "(") (* sp-nl)
-                  grouped-assignment-target (* sp-nl)
-                  (or ")" "]") (* sp-bsnl)
+       (python-rx (or line-start ?\; ?=) (* space)
+                  (or "[" "(") (* space)
+                  grouped-assignment-target (* space)
+                  (or ")" "]") (* space)
                   (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face))
@@ -859,18 +867,6 @@ decorators, exceptions, and assignments.")
 
 Which one will be chosen depends on the value of
 `font-lock-maximum-decoration'.")
-
-(defun python-font-lock-extend-region (beg end _old-len)
-  "Extend font-lock region given by BEG and END to statement boundaries."
-  (save-excursion
-    (save-match-data
-      (goto-char beg)
-      (python-nav-beginning-of-statement)
-      (setq beg (point))
-      (goto-char end)
-      (python-nav-end-of-statement)
-      (setq end (point))
-      (cons beg end))))
 
 
 (defconst python-syntax-propertize-function
@@ -973,19 +969,30 @@ It makes underscores and dots word constituent chars.")
     "raise" "return" "try" "while" "with" "yield"
     ;; These are technically operators, but we fontify them as
     ;; keywords.
-    "and" "in" "is" "not" "or"))
+    "and" "in" "is" "not" "or" "not in" "is not"))
+
+(defvar python--treesit-builtin-types
+  '("int" "float" "complex" "bool" "list" "tuple" "range" "str"
+    "bytes" "bytearray" "memoryview" "set" "frozenset" "dict"))
+
+(defvar python--treesit-type-regex
+  (rx-to-string `(seq bol (or
+                           ,@python--treesit-builtin-types
+                           (seq (?  "_") (any "A-Z") (+ (any "a-zA-Z_0-9"))))
+                  eol)))
 
 (defvar python--treesit-builtins
-  '("abs" "all" "any" "ascii" "bin" "bool" "breakpoint" "bytearray"
-    "bytes" "callable" "chr" "classmethod" "compile" "complex"
-    "delattr" "dict" "dir" "divmod" "enumerate" "eval" "exec"
-    "filter" "float" "format" "frozenset" "getattr" "globals"
-    "hasattr" "hash" "help" "hex" "id" "input" "int" "isinstance"
-    "issubclass" "iter" "len" "list" "locals" "map" "max"
-    "memoryview" "min" "next" "object" "oct" "open" "ord" "pow"
-    "print" "property" "range" "repr" "reversed" "round" "set"
-    "setattr" "slice" "sorted" "staticmethod" "str" "sum" "super"
-    "tuple" "type" "vars" "zip" "__import__"))
+  (append python--treesit-builtin-types
+          '("abs" "all" "any" "ascii" "bin" "breakpoint"
+            "callable" "chr" "classmethod" "compile"
+            "delattr" "dir" "divmod" "enumerate" "eval" "exec"
+            "filter" "format" "getattr" "globals"
+            "hasattr" "hash" "help" "hex" "id" "input" "isinstance"
+            "issubclass" "iter" "len" "locals" "map" "max"
+            "min" "next" "object" "oct" "open" "ord" "pow"
+            "print" "property" "repr" "reversed" "round"
+            "setattr" "slice" "sorted" "staticmethod" "sum" "super"
+            "type" "vars" "zip" "__import__")))
 
 (defvar python--treesit-constants
   '("Ellipsis" "False" "None" "NotImplemented" "True" "__debug__"
@@ -993,7 +1000,8 @@ It makes underscores and dots word constituent chars.")
 
 (defvar python--treesit-operators
   '("-" "-=" "!=" "*" "**" "**=" "*=" "/" "//" "//=" "/=" "&" "%" "%="
-    "^" "+" "+=" "<" "<<" "<=" "<>" "=" "==" ">" ">=" ">>" "|" "~" "@" "@="))
+    "^" "+" "->" "+=" "<" "<<" "<=" "<>" "=" ":=" "==" ">" ">=" ">>" "|"
+    "~" "@" "@="))
 
 (defvar python--treesit-special-attributes
   '("__annotations__" "__closure__" "__code__"
@@ -1035,9 +1043,7 @@ NODE is the string node.  Do not fontify the initial f for
 f-strings.  OVERRIDE is the override flag described in
 `treesit-font-lock-rules'.  START and END mark the region to be
 fontified."
-  (let* ((string-beg (treesit-node-start node))
-         (string-end (treesit-node-end node))
-         (maybe-expression (treesit-node-parent node))
+  (let* ((maybe-expression (treesit-node-parent node))
          (grandparent (treesit-node-parent
                        (treesit-node-parent
                         maybe-expression)))
@@ -1065,11 +1071,92 @@ fontified."
                         (equal (treesit-node-type maybe-expression)
                                "expression_statement"))
                    'font-lock-doc-face
-                 'font-lock-string-face)))
-    (when (eq (char-after string-beg) ?f)
-      (cl-incf string-beg))
-    (treesit-fontify-with-override
-     string-beg string-end face override start end)))
+                 'font-lock-string-face))
+
+         (ignore-interpolation (not
+                                (seq-some
+                                 (lambda (feats) (memq 'string-interpolation feats))
+                                 (seq-take treesit-font-lock-feature-list treesit-font-lock-level))))
+         ;; If interpolation is enabled, highlight only
+         ;; string_start/string_content/string_end children.  Do not
+         ;; touch interpolation node that can occur inside of the
+         ;; string.
+         (string-nodes (if ignore-interpolation
+                           (list node)
+                         (treesit-filter-child
+                          node
+                          (lambda (ch) (member (treesit-node-type ch)
+                                               '("string_start"
+                                                 "string_content"
+                                                 "string_end")))
+                          t))))
+
+    (dolist (string-node string-nodes)
+      (let ((string-beg (treesit-node-start string-node))
+            (string-end (treesit-node-end string-node)))
+        (when (or ignore-interpolation
+                  (equal (treesit-node-type string-node) "string_start"))
+          ;; Don't highlight string prefixes like f/r/b.
+          (save-excursion
+            (goto-char string-beg)
+            (when (re-search-forward "[\"']" string-end t)
+              (setq string-beg (match-beginning 0)))))
+
+        (treesit-fontify-with-override
+         string-beg string-end face override start end)))))
+
+(defun python--treesit-fontify-union-types (node override start end &optional type-regex &rest _)
+  "Fontify nested union types in the type hints.
+For example, Lvl1 | Lvl2[Lvl3[Lvl4[Lvl5 | None]], Lvl2].  This
+structure is represented via nesting binary_operator and
+subscript nodes.  This function iterates over all levels and
+highlight identifier nodes. If TYPE-REGEX is not nil fontify type
+identifier only if it matches against TYPE-REGEX. NODE is the
+binary_operator node.  OVERRIDE is the override flag described in
+`treesit-font-lock-rules'.  START and END mark the region to be
+fontified."
+  (dolist (child (treesit-node-children node t))
+    (let (font-node)
+      (pcase (treesit-node-type child)
+        ((or "identifier" "none")
+         (setq font-node child))
+        ("attribute"
+         (when-let ((type-node (treesit-node-child-by-field-name child "attribute")))
+           (setq font-node type-node)))
+        ((or "binary_operator" "subscript")
+         (python--treesit-fontify-union-types child override start end type-regex)))
+
+      (when (and font-node
+                 (or (null type-regex)
+                     (let ((case-fold-search nil))
+                       (string-match-p type-regex (treesit-node-text font-node)))))
+        (treesit-fontify-with-override
+         (treesit-node-start font-node) (treesit-node-end font-node)
+         'font-lock-type-face override start end)))))
+
+(defun python--treesit-fontify-union-types-strict (node override start end &rest _)
+  "Fontify nested union types.
+Same as `python--treesit-fontify-union-types' but type identifier
+should match against `python--treesit-type-regex'.  For NODE,
+OVERRIDE, START and END description see
+`python--treesit-fontify-union-types'."
+  (python--treesit-fontify-union-types node override start end python--treesit-type-regex))
+
+(defun python--treesit-fontify-dotted-decorator (node override start end &rest _)
+  "Fontify dotted decorators.
+For example @pytes.mark.skip.  Iterate over all nested attribute
+nodes and highlight identifier nodes.  NODE is the first attribute
+node.  OVERRIDE is the override flag described in
+`treesit-font-lock-rules'.  START and END mark the region to be
+fontified."
+  (dolist (child (treesit-node-children node t))
+    (pcase (treesit-node-type child)
+      ("identifier"
+       (treesit-fontify-with-override
+        (treesit-node-start child) (treesit-node-end child)
+        'font-lock-type-face override start end))
+      ("attribute"
+       (python--treesit-fontify-dotted-decorator child override start end)))))
 
 (defvar python--treesit-settings
   (treesit-font-lock-rules
@@ -1079,26 +1166,24 @@ fontified."
 
    :feature 'string
    :language 'python
-   :override t
-   '((string) @python--treesit-fontify-string)
+   '((string) @python--treesit-fontify-string
+     (interpolation ["{" "}"] @font-lock-misc-punctuation-face))
 
-   :feature 'string-interpolation
+
+   :feature 'keyword
    :language 'python
-   :override t
-   '((interpolation (identifier) @font-lock-variable-name-face))
+   `([,@python--treesit-keywords] @font-lock-keyword-face
+     ((identifier) @font-lock-keyword-face
+      (:match "\\`self\\'" @font-lock-keyword-face)))
 
    :feature 'definition
    :language 'python
    '((function_definition
       name: (identifier) @font-lock-function-name-face)
      (class_definition
-      name: (identifier) @font-lock-type-face))
-
-   :feature 'keyword
-   :language 'python
-   `([,@python--treesit-keywords] @font-lock-keyword-face
-     ((identifier) @font-lock-keyword-face
-      (:match "^self$" @font-lock-keyword-face)))
+      name: (identifier) @font-lock-type-face)
+     (parameters (identifier) @font-lock-variable-name-face)
+     (parameters (default_parameter name: (identifier) @font-lock-variable-name-face)))
 
    :feature 'builtin
    :language 'python
@@ -1109,6 +1194,19 @@ fontified."
                           ,@python--treesit-special-attributes)
                       eol))
               @font-lock-builtin-face)))
+
+   :feature 'decorator
+   :language 'python
+   '((decorator "@" @font-lock-type-face)
+     (decorator (call function: (identifier) @font-lock-type-face))
+     (decorator (identifier) @font-lock-type-face)
+     (decorator [(attribute) (call (attribute))] @python--treesit-fontify-dotted-decorator))
+
+   :feature 'function
+   :language 'python
+   '((call function: (identifier) @font-lock-function-call-face)
+     (call function: (attribute
+                      attribute: (identifier) @font-lock-function-call-face)))
 
    :feature 'constant
    :language 'python
@@ -1122,29 +1220,70 @@ fontified."
      (assignment left: (attribute
                         attribute: (identifier)
                         @font-lock-variable-name-face))
-     (pattern_list (identifier)
+     (augmented_assignment left: (identifier)
+                           @font-lock-variable-name-face)
+     (named_expression name: (identifier)
+                       @font-lock-variable-name-face)
+     (pattern_list [(identifier)
+                    (list_splat_pattern (identifier))]
                    @font-lock-variable-name-face)
-     (tuple_pattern (identifier)
+     (tuple_pattern [(identifier)
+                     (list_splat_pattern (identifier))]
                     @font-lock-variable-name-face)
-     (list_pattern (identifier)
-                   @font-lock-variable-name-face)
-     (list_splat_pattern (identifier)
-                         @font-lock-variable-name-face))
+     (list_pattern [(identifier)
+                    (list_splat_pattern (identifier))]
+                   @font-lock-variable-name-face))
 
-   :feature 'decorator
-   :language 'python
-   '((decorator "@" @font-lock-type-face)
-     (decorator (call function: (identifier) @font-lock-type-face))
-     (decorator (identifier) @font-lock-type-face))
 
    :feature 'type
    :language 'python
+   ;; Override built-in faces when dict/list are used for type hints.
+   :override t
    `(((identifier) @font-lock-type-face
       (:match ,(rx-to-string
                 `(seq bol (or ,@python--treesit-exceptions)
-                      eol))
+                  eol))
               @font-lock-type-face))
-     (type (identifier) @font-lock-type-face))
+     (type [(identifier) (none)] @font-lock-type-face)
+     (type (attribute attribute: (identifier) @font-lock-type-face))
+     ;; We don't want to highlight a package of the type
+     ;; (e.g. pack.ClassName).  So explicitly exclude patterns with
+     ;; attribute, since we handle dotted type name in the previous
+     ;; rule.  The following rule handle
+     ;; generic_type/list/tuple/splat_type nodes.
+     (type (_ !attribute [[(identifier) (none)] @font-lock-type-face
+                          (attribute attribute: (identifier) @font-lock-type-face) ]))
+     ;; collections.abc.Iterator[T] case.
+     (type (subscript (attribute attribute: (identifier) @font-lock-type-face)))
+     ;; Nested optional type hints, e.g. val: Lvl1 | Lvl2[Lvl3[Lvl4]].
+     (type (binary_operator) @python--treesit-fontify-union-types)
+     ;;class Type(Base1, Sequence[T]).
+     (class_definition
+      superclasses:
+      (argument_list [(identifier) @font-lock-type-face
+                      (attribute attribute: (identifier) @font-lock-type-face)
+                      (subscript (identifier) @font-lock-type-face)
+                      (subscript (attribute attribute: (identifier) @font-lock-type-face))]))
+
+     ;; Pattern matching: case [str(), pack0.Type0()].  Take only the
+     ;; last identifier.
+     (class_pattern (dotted_name (identifier) @font-lock-type-face :anchor))
+
+     ;; Highlight the second argument as a type in isinstance/issubclass.
+     ((call function: (identifier) @func-name
+            (argument_list :anchor (_)
+                           [(identifier) @font-lock-type-face
+                            (attribute attribute: (identifier) @font-lock-type-face)
+                            (tuple (identifier) @font-lock-type-face)
+                            (tuple (attribute attribute: (identifier) @font-lock-type-face))]
+                           (:match ,python--treesit-type-regex @font-lock-type-face)))
+      (:match "^is\\(?:instance\\|subclass\\)$" @func-name))
+
+     ;; isinstance(t, int|float).
+     ((call function: (identifier) @func-name
+            (argument_list :anchor (_)
+                           (binary_operator) @python--treesit-fontify-union-types-strict))
+      (:match "^is\\(?:instance\\|subclass\\)$" @func-name)))
 
    :feature 'escape-sequence
    :language 'python
@@ -1153,35 +1292,72 @@ fontified."
 
    :feature 'number
    :language 'python
-   :override t
    '([(integer) (float)] @font-lock-number-face)
 
    :feature 'property
    :language 'python
-   :override t
    '((attribute
-      attribute: (identifier) @font-lock-property-face)
+      attribute: (identifier) @font-lock-property-use-face)
      (class_definition
       body: (block
              (expression_statement
               (assignment left:
-                          (identifier) @font-lock-property-face)))))
+                          (identifier) @font-lock-property-use-face)))))
 
    :feature 'operator
    :language 'python
-   :override t
    `([,@python--treesit-operators] @font-lock-operator-face)
 
    :feature 'bracket
    :language 'python
-   :override t
    '(["(" ")" "[" "]" "{" "}"] @font-lock-bracket-face)
 
    :feature 'delimiter
    :language 'python
-   :override t
-   '(["," "." ":" ";" (ellipsis)] @font-lock-delimiter-face))
+   '(["," "." ":" ";" (ellipsis)] @font-lock-delimiter-face)
+
+   :feature 'variable
+   :language 'python
+   '((identifier) @python--treesit-fontify-variable))
   "Tree-sitter font-lock settings.")
+
+(defun python--treesit-variable-p (node)
+  "Check whether NODE is a variable.
+NODE's type should be \"identifier\"."
+  ;; An identifier can be a function/class name, a property, or a
+  ;; variables.  This function filters out function/class names,
+  ;; properties and method parameters.
+  (pcase (treesit-node-type (treesit-node-parent node))
+    ((or "function_definition" "class_definition" "parameters") nil)
+    ("attribute"
+     (pcase (treesit-node-field-name node)
+       ("object" t)
+       (_ nil)))
+    (_ t)))
+
+(defun python--treesit-fontify-variable (node override start end &rest _)
+  "Fontify an identifier node if it is a variable.
+For NODE, OVERRIDE, START, END, and ARGS, see
+`treesit-font-lock-rules'."
+  (when (python--treesit-variable-p node)
+    (treesit-fontify-with-override
+     (treesit-node-start node) (treesit-node-end node)
+     'font-lock-variable-use-face override start end)))
+
+(defun python--treesit-syntax-propertize (start end)
+  "Propertize triple-quote strings between START and END."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward (rx (or "\"\"\"" "'''")) end t)
+      (let ((node (treesit-node-at (point))))
+        ;; The triple quotes surround a non-empty string.
+        (when (equal (treesit-node-type node) "string_content")
+          (let ((start (treesit-node-start node))
+                (end (treesit-node-end node)))
+            (put-text-property (1- start) start
+                               'syntax-table (string-to-syntax "|"))
+            (put-text-property end (min (1+ end) (point-max))
+                               'syntax-table (string-to-syntax "|"))))))))
 
 
 ;;; Indentation
@@ -2014,10 +2190,6 @@ of the statement."
                        ;; are somehow out of whack.  This has been
                        ;; observed when using `syntax-ppss' during
                        ;; narrowing.
-                       ;; It can also fail in cases where the buffer is in
-                       ;; the process of being modified, e.g. when creating
-                       ;; a string with `electric-pair-mode' disabled such
-                       ;; that there can be an unmatched single quote
                        (when (>= string-start last-string-end)
                          (goto-char string-start)
                          (if (python-syntax-context 'paren)
@@ -2028,10 +2200,16 @@ of the statement."
                            (goto-char (+ (point)
                                          (python-syntax-count-quotes
                                           (char-after (point)) (point))))
-                           (setq last-string-end
-                                 (or (re-search-forward
-                                      (rx (syntax string-delimiter)) nil t)
-                                     (goto-char (point-max)))))))
+                           (setq
+                            last-string-end
+                            (or (if (eq t (nth 3 (syntax-ppss)))
+                                    (re-search-forward
+                                     (rx (syntax string-delimiter)) nil t)
+                                  (ignore-error scan-error
+                                    (goto-char string-start)
+                                    (python-nav--lisp-forward-sexp)
+                                    (point)))
+                                (goto-char (point-max)))))))
                       ((python-syntax-context 'paren)
                        ;; The statement won't end before we've escaped
                        ;; at least one level of parenthesis.
@@ -2100,10 +2278,7 @@ backward to previous statement."
       (while (and (forward-line 1)
                   (not (eobp))
                   (or (and (> (current-indentation) block-indentation)
-                           (let ((start (point)))
-                             (python-nav-end-of-statement)
-                             ;; must move forward otherwise infinite loop
-                             (> (point) start)))
+                           (or (python-nav-end-of-statement) t))
                       (python-info-current-line-comment-p)
                       (python-info-current-line-empty-p))))
       (python-util-forward-comment -1)
@@ -3708,29 +3883,48 @@ the python shell:
      appending extra empty lines so tracebacks are correct.
   3. When the region sent is a substring of the current buffer, a
      coding cookie is added.
-  4. Wraps indented regions under an \"if True:\" block so the
-     interpreter evaluates them correctly."
-  (let* ((start (save-excursion
-                  ;; If we're at the start of the expression, and
-                  ;; there's just blank space ahead of it, then expand
-                  ;; the region to include the start of the line.
-                  ;; This makes things work better with the rest of
-                  ;; the data we're sending over.
+  4. When the region consists of a single statement, leading
+     whitespaces will be removed.  Otherwise, wraps indented
+     regions under an \"if True:\" block so the interpreter
+     evaluates them correctly."
+  (let* ((single-p (save-excursion
+                     (save-restriction
+                       (narrow-to-region start end)
+                       (= (progn
+                            (goto-char start)
+                            (python-nav-beginning-of-statement))
+                          (progn
+                            (goto-char end)
+                            (python-nav-beginning-of-statement))))))
+         (start (save-excursion
+                  ;; If we're at the start of the expression, and if
+                  ;; the region consists of a single statement, then
+                  ;; remove leading whitespaces, else if there's just
+                  ;; blank space ahead of it, then expand the region
+                  ;; to include the start of the line.  This makes
+                  ;; things work better with the rest of the data
+                  ;; we're sending over.
                   (goto-char start)
-                  (if (string-blank-p
-                       (buffer-substring (line-beginning-position) start))
-                      (line-beginning-position)
-                    start)))
+                  (if single-p
+                      (progn
+                        (skip-chars-forward "[:space:]" end)
+                        (point))
+                    (if (string-blank-p
+                         (buffer-substring (line-beginning-position) start))
+                        (line-beginning-position)
+                      start))))
          (substring (buffer-substring-no-properties start end))
-         (starts-at-point-min-p (save-restriction
-                                  (widen)
-                                  (= (point-min) start)))
+         (starts-at-first-line-p (save-excursion
+                                   (save-restriction
+                                     (widen)
+                                     (goto-char start)
+                                     (= (line-number-at-pos) 1))))
          (encoding (python-info-encoding))
          (toplevel-p (zerop (save-excursion
                               (goto-char start)
                               (python-util-forward-comment 1)
                               (current-indentation))))
-         (fillstr (cond (starts-at-point-min-p
+         (fillstr (cond (starts-at-first-line-p
                          nil)
                         ((not no-cookie)
                          (concat
@@ -3744,7 +3938,7 @@ the python shell:
       (python-mode)
       (when fillstr
         (insert fillstr))
-      (when (not toplevel-p)
+      (when (and (not single-p) (not toplevel-p))
         (forward-line -1)
         (insert "if True:\n")
         (delete-region (point) (line-end-position)))
@@ -3788,7 +3982,8 @@ code inside blocks delimited by \"if __name__== \\='__main__\\=':\".
 When called interactively SEND-MAIN defaults to nil, unless it's
 called with prefix argument.  When optional argument MSG is
 non-nil, forces display of a user-friendly message if there's no
-process running; defaults to t when called interactively."
+process running; defaults to t when called interactively.  The
+substring to be sent is retrieved using `python-shell-buffer-substring'."
   (interactive
    (list (region-beginning) (region-end) current-prefix-arg t))
   (let* ((string (python-shell-buffer-substring start end (not send-main)
@@ -4531,7 +4726,7 @@ Commands that must finish the tracking session are listed in
   (when (and python-pdbtrack-tracked-buffer
              ;; Empty input is sent by C-d or `comint-send-eof'
              (or (string-empty-p input)
-                 ;; "n some text" is "n" command for pdb. Split input and get firs part
+                 ;; "n some text" is "n" command for pdb. Split input and get first part
                  (let* ((command (car (split-string (string-trim input) " "))))
                    (setq python-pdbtrack-prev-command-continue
                          (or (member command python-pdbtrack-continue-command)
@@ -4738,9 +4933,7 @@ Optional argument JUSTIFY defines if the paragraph should be justified."
      ((python-syntax-context 'comment)
       (funcall python-fill-comment-function justify))
      ;; Strings/Docstrings
-     ((save-excursion (or (python-syntax-context 'string)
-                          (equal (string-to-syntax "|")
-                                 (syntax-after (point)))))
+     ((python-info-triple-quoted-string-p)
       (funcall python-fill-string-function justify))
      ;; Decorators
      ((equal (char-after (save-excursion
@@ -4766,10 +4959,7 @@ JUSTIFY should be used (if applicable) as in `fill-paragraph'."
   (let* ((str-start-pos
           (set-marker
            (make-marker)
-           (or (python-syntax-context 'string)
-               (and (equal (string-to-syntax "|")
-                           (syntax-after (point)))
-                    (point)))))
+           (python-info-triple-quoted-string-p)))
          ;; JT@2021-09-21: Since bug#49518's fix this will always be 1
          (num-quotes (python-syntax-count-quotes
                       (char-after str-start-pos) str-start-pos))
@@ -4896,7 +5086,7 @@ the if condition."
 (defun python--completion-predicate (_ buffer)
   (provided-mode-derived-p
    (buffer-local-value 'major-mode buffer)
-   'python-mode))
+   'python-base-mode))
 
 (defmacro python-skeleton-define (name doc &rest skel)
   "Define a `python-mode' skeleton using NAME DOC and SKEL.
@@ -5439,6 +5629,16 @@ To this:
 
 ;;; Tree-sitter imenu
 
+(defun python--treesit-defun-name (node)
+  "Return the defun name of NODE.
+Return nil if there is no name or if NODE is not a defun node."
+  (pcase (treesit-node-type node)
+    ((or "function_definition" "class_definition")
+     (treesit-node-text
+      (treesit-node-child-by-field-name
+       node "name")
+      t))))
+
 (defun python--imenu-treesit-create-index-1 (node)
   "Given a sparse tree, create an imenu alist.
 
@@ -5464,9 +5664,8 @@ definition*\"."
                  ("class_definition" 'class)))
          ;; The root of the tree could have a nil ts-node.
          (name (when ts-node
-                 (treesit-node-text
-                  (treesit-node-child-by-field-name
-                   ts-node "name") t)))
+                 (or (treesit-defun-name ts-node)
+                     "Anonymous")))
          (marker (when ts-node
                    (set-marker (make-marker)
                                (treesit-node-start ts-node)))))
@@ -5707,7 +5906,8 @@ likely an invalid python file."
                (pairs '(("elif" "elif" "if")
                         ("else" "if" "elif" "except" "for" "while")
                         ("except" "except" "try")
-                        ("finally" "else" "except" "try")))
+                        ("finally" "else" "except" "try")
+                        ("case" "case")))
                (dedenter (match-string-no-properties 0))
                (possible-opening-blocks (cdr (assoc-string dedenter pairs)))
                (collected-indentations)
@@ -5715,7 +5915,11 @@ likely an invalid python file."
           (catch 'exit
             (while (python-nav--syntactically
                     (lambda ()
-                      (re-search-backward (python-rx block-start) nil t))
+                      (cl-loop while (re-search-backward (python-rx block-start) nil t)
+                               if (save-match-data
+                                    (looking-back (rx line-start (* whitespace))
+                                                  (line-beginning-position)))
+                               return t))
                     #'<)
               (let ((indentation (current-indentation)))
                 (when (and (not (memq indentation collected-indentations))
@@ -5769,7 +5973,14 @@ statement."
   (save-excursion
     (python-nav-beginning-of-statement)
     (when (and (not (python-syntax-context-type))
-               (looking-at (python-rx dedenter)))
+               (looking-at (python-rx dedenter))
+               ;; Exclude the first "case" in the block.
+               (not (and (string= (match-string-no-properties 0)
+                                  "case")
+                         (save-excursion
+                           (back-to-indentation)
+                           (python-util-forward-comment -1)
+                           (equal (char-before) ?:)))))
       (point))))
 
 (defun python-info-line-ends-backslash-p (&optional line-number)
@@ -5926,8 +6137,7 @@ point's current `syntax-ppss'."
     (let ((counter 1)
           (indentation (current-indentation))
           (backward-sexp-point)
-          (re (concat "[uU]?[rR]?"
-                      (python-rx string-delimiter))))
+          (re "[uU]?[rR]?[\"']"))
       (when (and
              (not (python-info-assignment-statement-p))
              (looking-at-p re)
@@ -5948,9 +6158,7 @@ point's current `syntax-ppss'."
                                                     backward-sexp-point))
                                      (setq last-backward-sexp-point
                                            backward-sexp-point))
-                                   (looking-at-p
-                                    (concat "[uU]?[rR]?"
-                                            (python-rx string-delimiter))))))
+                                   (looking-at-p re))))
                   ;; Previous sexp was a string, restore point.
                   (goto-char backward-sexp-point)
                   (cl-incf counter))
@@ -5961,6 +6169,21 @@ point's current `syntax-ppss'."
               ((python-info-assignment-statement-p) t)
               ((python-info-looking-at-beginning-of-defun))
               (t nil))))))
+
+(defun python-info-triple-quoted-string-p ()
+  "Check if point is in a triple quoted string including quotes.
+It returns the position of the third quote character of the start
+of the string."
+  (save-excursion
+    (let ((pos (point)))
+      (cl-loop
+       for offset in '(0 3 -2 2 -1 1)
+       if (let ((check-pos (+ pos offset)))
+            (and (>= check-pos (point-min))
+                 (<= check-pos (point-max))
+                 (python-syntax-context
+                  'triple-quoted-string (syntax-ppss check-pos))))
+       return it))))
 
 (defun python-info-encoding-from-cookie ()
   "Detect current buffer's encoding from its coding cookie.
@@ -6003,7 +6226,8 @@ Optional argument REGEXP selects variables to clone and defaults
 to \"^python-\"."
   (mapc
    (lambda (pair)
-     (and (symbolp (car pair))
+     (and (consp pair)
+          (symbolp (car pair))
           (string-match (or regexp "^python-")
                         (symbol-name (car pair)))
           (set (make-local-variable (car pair))
@@ -6300,7 +6524,7 @@ for key in sorted(result):
   "List files containing Python imports that may be useful in the current buffer."
   (if-let (((featurep 'project))        ;For compatibility with Emacs < 26
            (proj (project-current)))
-      (seq-filter (lambda (s) (string-match-p "\\.py[ciw]?\\'" s))
+      (seq-filter (lambda (s) (string-match-p "\\.py[iwx]?\\'" s))
                   (project-files proj))
     (list default-directory)))
 
@@ -6563,19 +6787,21 @@ implementations: `python-mode' and `python-ts-mode'."
         (add-function :before-until (local 'eldoc-documentation-function)
                       #'python-eldoc-function))))
 
-  (add-to-list
-   'hs-special-modes-alist
-   `(python-mode
-     ,python-nav-beginning-of-block-regexp
-     ;; Use the empty string as end regexp so it doesn't default to
-     ;; "\\s)".  This way parens at end of defun are properly hidden.
-     ""
-     "#"
-     python-hideshow-forward-sexp-function
-     nil
-     python-nav-beginning-of-block
-     python-hideshow-find-next-block
-     python-info-looking-at-beginning-of-block))
+  ;; TODO: Use tree-sitter to figure out the block in `python-ts-mode'.
+  (dolist (mode '(python-mode python-ts-mode))
+    (add-to-list
+     'hs-special-modes-alist
+     `(,mode
+       ,python-nav-beginning-of-block-regexp
+       ;; Use the empty string as end regexp so it doesn't default to
+       ;; "\\s)".  This way parens at end of defun are properly hidden.
+       ""
+       "#"
+       python-hideshow-forward-sexp-function
+       nil
+       python-nav-beginning-of-block
+       python-hideshow-find-next-block
+       python-info-looking-at-beginning-of-block)))
 
   (setq-local outline-regexp (python-rx (* space) block-start))
   (setq-local outline-level
@@ -6584,8 +6810,6 @@ implementations: `python-mode' and `python-ts-mode'."
                 (1+ (/ (current-indentation) python-indent-offset))))
 
   (setq-local prettify-symbols-alist python-prettify-symbols-alist)
-
-  (python-skeleton-add-menu-items)
 
   (make-local-variable 'python-shell-internal-buffer)
 
@@ -6600,15 +6824,15 @@ implementations: `python-mode' and `python-ts-mode'."
               `(,python-font-lock-keywords
                 nil nil nil nil
                 (font-lock-syntactic-face-function
-                 . python-font-lock-syntactic-face-function)
-                (font-lock-extend-after-change-region-function
-                 . python-font-lock-extend-region)))
+                 . python-font-lock-syntactic-face-function)))
   (setq-local syntax-propertize-function
               python-syntax-propertize-function)
   (setq-local imenu-create-index-function
               #'python-imenu-create-index)
 
   (add-hook 'which-func-functions #'python-info-current-defun nil t)
+
+  (python-skeleton-add-menu-items)
 
   (when python-indent-guess-indent-offset
     (python-indent-guess-indent-offset)))
@@ -6618,23 +6842,33 @@ implementations: `python-mode' and `python-ts-mode'."
   "Major mode for editing Python files, using tree-sitter library.
 
 \\{python-ts-mode-map}"
+  :syntax-table python-mode-syntax-table
   (when (treesit-ready-p 'python)
     (treesit-parser-create 'python)
     (setq-local treesit-font-lock-feature-list
                 '(( comment definition)
                   ( keyword string type)
                   ( assignment builtin constant decorator
-                    escape-sequence number property string-interpolation )
-                  ( bracket delimiter operator)))
+                    escape-sequence number string-interpolation )
+                  ( bracket delimiter function operator variable property)))
     (setq-local treesit-font-lock-settings python--treesit-settings)
     (setq-local imenu-create-index-function
                 #'python-imenu-treesit-create-index)
     (setq-local treesit-defun-type-regexp (rx (or "function" "class")
                                               "_definition"))
+    (setq-local treesit-defun-name-function
+                #'python--treesit-defun-name)
     (treesit-major-mode-setup)
 
-  (when python-indent-guess-indent-offset
-    (python-indent-guess-indent-offset))))
+    (setq-local syntax-propertize-function #'python--treesit-syntax-propertize)
+
+    (python-skeleton-add-menu-items)
+
+    (when python-indent-guess-indent-offset
+      (python-indent-guess-indent-offset))
+
+    (add-to-list 'auto-mode-alist '("\\.py[iw]?\\'" . python-ts-mode))
+    (add-to-list 'interpreter-mode-alist '("python[0-9.]*" . python-ts-mode))))
 
 ;;; Completion predicates for M-x
 ;; Commands that only make sense when editing Python code
@@ -6676,7 +6910,7 @@ implementations: `python-mode' and `python-ts-mode'."
 (defun python-shell--completion-predicate (_ buffer)
   (provided-mode-derived-p
    (buffer-local-value 'major-mode buffer)
-   'python-mode 'inferior-python-mode))
+   'python-base-mode 'inferior-python-mode))
 
 ;; Commands that only make sense in the Python shell or when editing
 ;; Python code.

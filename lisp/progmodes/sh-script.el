@@ -1,6 +1,6 @@
 ;;; sh-script.el --- shell-script editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1997, 1999, 2001-2022 Free Software Foundation,
+;; Copyright (C) 1993-1997, 1999, 2001-2024 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>
@@ -149,6 +149,8 @@
   (require 'subr-x))
 (require 'executable)
 (require 'treesit)
+
+(declare-function treesit-parser-create "treesit.c")
 
 (autoload 'comint-completion-at-point "comint")
 (autoload 'comint-filename-completion "comint")
@@ -1535,13 +1537,7 @@ implementations.  Currently there are two: `sh-mode' and
               (lambda (terminator)
                 (if (eq terminator ?')
                     "'\\'"
-                  "\\")))
-  ;; Parse or insert magic number for exec, and set all variables depending
-  ;; on the shell thus determined.
-  (sh-set-shell (sh--guess-shell) nil nil)
-  (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
-  (add-hook 'hack-local-variables-hook
-            #'sh-after-hack-local-variables nil t))
+                  "\\"))))
 
 ;;;###autoload
 (define-derived-mode sh-mode sh-base-mode "Shell-script"
@@ -1601,7 +1597,13 @@ with your script for an edit-interpret-debug cycle."
           nil nil
           ((?/ . "w") (?~ . "w") (?. . "w") (?- . "w") (?_ . "w")) nil
           (font-lock-syntactic-face-function
-           . ,#'sh-font-lock-syntactic-face-function))))
+           . ,#'sh-font-lock-syntactic-face-function)))
+  ;; Parse or insert magic number for exec, and set all variables depending
+  ;; on the shell thus determined.
+  (sh-set-shell (sh--guess-shell) nil nil)
+  (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
+  (add-hook 'hack-local-variables-hook
+            #'sh-after-hack-local-variables nil t))
 
 ;;;###autoload
 (defalias 'shell-script-mode 'sh-mode)
@@ -1611,14 +1613,22 @@ with your script for an edit-interpret-debug cycle."
   "Major mode for editing Bash shell scripts.
 This mode automatically falls back to `sh-mode' if the buffer is
 not written in Bash or sh."
+  :syntax-table sh-mode-syntax-table
   (when (treesit-ready-p 'bash)
+    (sh-set-shell "bash" nil nil)
+    (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
+    (add-hook 'hack-local-variables-hook
+              #'sh-after-hack-local-variables nil t)
+    (treesit-parser-create 'bash)
     (setq-local treesit-font-lock-feature-list
                 '(( comment function)
                   ( command declaration-command keyword string)
-                  ( builtin-variable constant heredoc number variable)
+                  ( builtin-variable constant heredoc number
+                    string-interpolation variable)
                   ( bracket delimiter misc-punctuation operator)))
     (setq-local treesit-font-lock-settings
                 sh-mode--treesit-settings)
+    (setq-local treesit-defun-type-regexp "function_definition")
     (treesit-major-mode-setup)))
 
 (advice-add 'bash-ts-mode :around #'sh--redirect-bash-ts-mode
@@ -3284,6 +3294,12 @@ See `sh-mode--treesit-other-keywords' and
    :language 'bash
    '([(string) (raw_string)] @font-lock-string-face)
 
+   :feature 'string-interpolation
+   :language 'bash
+   :override t
+   '((command_substitution) @sh-quoted-exec
+     (string (expansion (variable_name) @font-lock-variable-use-face)))
+
    :feature 'heredoc
    :language 'bash
    '([(heredoc_start) (heredoc_body)] @sh-heredoc)
@@ -3347,7 +3363,7 @@ See `sh-mode--treesit-other-keywords' and
    :feature 'number
    :language 'bash
    `(((word) @font-lock-number-face
-      (:match "^[0-9]+$" @font-lock-number-face)))
+      (:match "\\`[0-9]+\\'" @font-lock-number-face)))
 
    :feature 'bracket
    :language 'bash

@@ -1,5 +1,5 @@
 /* Manipulation of keymaps
-   Copyright (C) 1985-1988, 1993-1995, 1998-2022 Free Software
+   Copyright (C) 1985-1988, 1993-1995, 1998-2024 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -887,22 +887,23 @@ store_in_keymap (Lisp_Object keymap, register Lisp_Object idx,
   keymap_end:
     /* We have scanned the entire keymap, and not found a binding for
        IDX.  Let's add one.  */
-    {
-      Lisp_Object elt;
+    if (!remove)
+      {
+	Lisp_Object elt;
 
-      if (CONSP (idx) && CHARACTERP (XCAR (idx)))
-	{
-	  /* IDX specifies a range of characters, and not all of them
-	     were handled yet, which means this keymap doesn't have a
-	     char-table.  So, we insert a char-table now.  */
-	  elt = Fmake_char_table (Qkeymap, Qnil);
-	  Fset_char_table_range (elt, idx, NILP (def) ? Qt : def);
-	}
-      else
-	elt = Fcons (idx, def);
-      CHECK_IMPURE (insertion_point, XCONS (insertion_point));
-      XSETCDR (insertion_point, Fcons (elt, XCDR (insertion_point)));
-    }
+	if (CONSP (idx) && CHARACTERP (XCAR (idx)))
+	  {
+	    /* IDX specifies a range of characters, and not all of them
+	       were handled yet, which means this keymap doesn't have a
+	       char-table.  So, we insert a char-table now.  */
+	    elt = Fmake_char_table (Qkeymap, Qnil);
+	    Fset_char_table_range (elt, idx, NILP (def) ? Qt : def);
+	  }
+	else
+	  elt = Fcons (idx, def);
+	CHECK_IMPURE (insertion_point, XCONS (insertion_point));
+	XSETCDR (insertion_point, Fcons (elt, XCDR (insertion_point)));
+      }
   }
 
   return def;
@@ -1064,8 +1065,12 @@ possibly_translate_key_sequence (Lisp_Object key, ptrdiff_t *length)
 	xsignal2 (Qerror,
 		  build_string ("`key-valid-p' is not defined, so this syntax can't be used: %s"),
 		  key);
+      /* If key-valid-p is unhappy about KEY, we return it as-is.
+         This happens when menu items define as bindings strings that
+         should be inserted into the buffer, not commands.  See
+         bug#64927, for example.  */
       if (NILP (call1 (Qkey_valid_p, AREF (key, 0))))
-	xsignal2 (Qerror, build_string ("Invalid `key-parse' syntax: %S"), key);
+	return key;
       key = call1 (Qkey_parse, AREF (key, 0));
       *length = CHECK_VECTOR_OR_STRING (key);
       if (*length == 0)
@@ -3307,13 +3312,18 @@ describe_vector (Lisp_Object vector, Lisp_Object prefix, Lisp_Object args,
       if (this_shadowed)
 	{
 	  SET_PT (PT - 1);
-	  static char const fmt[] = "  (currently shadowed by `%s')";
-	  USE_SAFE_ALLOCA;
-	  char *buffer = SAFE_ALLOCA (sizeof fmt +
-				      SBYTES (SYMBOL_NAME (shadowed_by)));
-	  esprintf (buffer, fmt, SDATA (SYMBOL_NAME (shadowed_by)));
-	  insert_string (buffer);
-	  SAFE_FREE();
+	  if (SYMBOLP (shadowed_by))
+	    {
+	      static char const fmt[] = "  (currently shadowed by `%s')";
+	      USE_SAFE_ALLOCA;
+	      char *buffer =
+		SAFE_ALLOCA (sizeof fmt + SBYTES (SYMBOL_NAME (shadowed_by)));
+	      esprintf (buffer, fmt, SDATA (SYMBOL_NAME (shadowed_by)));
+	      insert_string (buffer);
+	      SAFE_FREE();
+	    }
+	  else	/* Could be a keymap, a lambda, or a keyboard macro.  */
+	    insert_string ("  (currently shadowed)");
 	  SET_PT (PT + 1);
 	}
     }

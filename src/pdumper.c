@@ -1,4 +1,4 @@
-/* Copyright (C) 2018-2022 Free Software Foundation, Inc.
+/* Copyright (C) 2018-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -2179,7 +2179,7 @@ dump_interval_node (struct dump_context *ctx, struct itree_node *node,
 static dump_off
 dump_overlay (struct dump_context *ctx, const struct Lisp_Overlay *overlay)
 {
-#if CHECK_STRUCTS && !defined (HASH_Lisp_Overlay_EB4C05D8D2)
+#if CHECK_STRUCTS && !defined (HASH_Lisp_Overlay_5F9D7E02FC)
 # error "Lisp_Overlay changed. See CHECK_STRUCTS comment in config.h."
 #endif
   START_DUMP_PVEC (ctx, &overlay->header, struct Lisp_Overlay, out);
@@ -2748,7 +2748,7 @@ dump_hash_table (struct dump_context *ctx,
 static dump_off
 dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 {
-#if CHECK_STRUCTS && !defined HASH_buffer_DB34E5D09F
+#if CHECK_STRUCTS && !defined HASH_buffer_9E96D7C4B4
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct buffer munged_buffer = *in_buffer;
@@ -2811,7 +2811,6 @@ dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
       DUMP_FIELD_COPY (out, buffer, own_text.end_unchanged);
       DUMP_FIELD_COPY (out, buffer, own_text.unchanged_modified);
       DUMP_FIELD_COPY (out, buffer, own_text.overlay_unchanged_modified);
-      DUMP_FIELD_COPY (out, buffer, own_text.chars_unchanged_modified);
       if (buffer->own_text.intervals)
         dump_field_fixup_later (ctx, out, buffer, &buffer->own_text.intervals);
       dump_field_lv_rawptr (ctx, out, buffer, &buffer->own_text.markers,

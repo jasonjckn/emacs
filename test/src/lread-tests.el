@@ -1,6 +1,6 @@
 ;;; lread-tests.el --- tests for lread.c -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2024 Free Software Foundation, Inc.
 
 ;; Author: Philipp Stephani <phst@google.com>
 
@@ -338,5 +338,21 @@ literals (Bug#20852)."
       (let ((f (symbol-function 'lazydoc-fun)))
         (should (byte-code-function-p f))
         (should (equal (aref f 4) "My little\ndoc string\nhere"))))))
+
+(ert-deftest lread-skip-to-eof ()
+  ;; Check the special #@00 syntax that, for compatibility, reads as
+  ;; nil while absorbing the remainder of the input.
+  (with-temp-buffer
+    (insert "#@00 and the rest\n"
+            "should be ignored) entirely\n")
+    (goto-char (point-min))
+    (should (equal (read (current-buffer)) nil))
+    (should (eobp))
+    ;; Add an unbalanced bracket to the beginning and try again;
+    ;; we should get an error.
+    (goto-char (point-min))
+    (insert "( ")
+    (goto-char (point-min))
+    (should-error (read (current-buffer)) :type 'end-of-file)))
 
 ;;; lread-tests.el ends here

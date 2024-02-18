@@ -1,6 +1,6 @@
 ;;; term.el --- general command interpreter in a window stuff -*- lexical-binding: t -*-
 
-;; Copyright (C) 1988, 1990, 1992, 1994-1995, 2001-2022 Free Software
+;; Copyright (C) 1988, 1990, 1992, 1994-1995, 2001-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Per Bothner <per@bothner.com>
@@ -487,7 +487,7 @@ Customize this option to nil if you want the previous behavior."
 
 (defcustom term-scroll-to-bottom-on-output nil
   "Controls whether interpreter output causes window to scroll.
-If nil, then do not scroll.  If t or `all', scroll all windows showing buffer.
+If nil, then do not scroll.  If t, scroll all windows showing buffer.
 If `this', scroll only the selected window.
 If `others', scroll only those that are not the selected window.
 
@@ -495,7 +495,12 @@ The default is nil.
 
 See variable `term-scroll-show-maximum-output'.
 This variable is buffer-local."
-  :type 'boolean
+  :type '(choice (const :tag "Don't scroll" nil)
+                 (const :tag "Scroll selected window only" this)
+                 (const :tag "Scroll unselected windows" others)
+                 ;; We also recognize `all', but we don't advertise it
+                 ;; anymore.  (Bug#66071)
+                 (other :tag "Scroll all windows" t))
   :group 'term)
 
 (defcustom term-scroll-snap-to-bottom t
@@ -1105,7 +1110,7 @@ variable `term-input-autoexpand', and addition is controlled by the
 variable `term-input-ignoredups'.
 
 Input to, and output from, the subprocess can cause the window to scroll to
-the end of the buffer.  See variables `term-scroll-to-bottom-on-input',
+the end of the buffer.  See variables `term-scroll-snap-to-bottom',
 and `term-scroll-to-bottom-on-output'.
 
 If you accidentally suspend your process, use \\[term-continue-subjob]
@@ -1373,17 +1378,28 @@ Entry to this mode runs the hooks on `term-mode-hook'."
   (run-hooks 'mouse-leave-buffer-hook)
   (setq this-command 'yank)
   (mouse-set-point click)
-  (term-send-raw-string (gui-get-primary-selection)))
+  ;; As we have moved point, bind `select-active-regions' to prevent
+  ;; the `deactivate-mark' call in `term-send-raw-string' from
+  ;; changing the primary selection (resulting in consecutive calls to
+  ;; `term-mouse-paste' each sending different text). (bug#58608).
+  ;; FIXME: Why does this command change point at all?
+  (let ((select-active-regions nil))
+    (term-send-raw-string (gui-get-primary-selection))))
 
 (defun term-paste ()
   "Insert the last stretch of killed text at point."
   (interactive)
    (term-send-raw-string (current-kill 0)))
 
-(defun term--xterm-paste ()
+(defun term--xterm-paste (event)
   "Insert the text pasted in an XTerm bracketed paste operation."
-  (interactive)
-  (term-send-raw-string (xterm--pasted-text)))
+  (interactive "e")
+  (unless (eq (car-safe event) 'xterm-paste)
+    (error "term--xterm-paste must be found to xterm-paste event"))
+  (let ((str (nth 1 event)))
+    (unless (stringp str)
+      (error "term--xterm-paste provided event does not contain paste text"))
+    (term-send-raw-string str)))
 
 (declare-function xterm--pasted-text "term/xterm" ())
 

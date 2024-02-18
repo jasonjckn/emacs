@@ -1,6 +1,6 @@
 ;;; rx.el --- S-exp notation for regexps           --*- lexical-binding: t -*-
 
-;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -445,13 +445,19 @@ classes."
           (setcar dash-l ?.))                  ; Reduce --x to .-x
         (setq items (nconc items '((?- . ?-))))))
 
-    ;; Deal with leading ^ and range ^-x.
-    (when (and (consp (car items))
-               (eq (caar items) ?^)
-               (cdr items))
-      ;; Move ^ and ^-x to second place.
-      (setq items (cons (cadr items)
-                        (cons (car items) (cddr items)))))
+    ;; Deal with leading ^ and range ^-x in non-negated set.
+    (when (and (eq (car-safe (car items)) ?^)
+               (not negated))
+      (if (eq (cdar items) ?^)
+          ;; single leading ^
+          (when (cdr items)
+            ;; Move the ^ to second place.
+            (setq items (cons (cadr items)
+                              (cons (car items) (cddr items)))))
+        ;; Split ^-x to _-x^
+        (setq items (cons (cons ?_ (cdar items))
+                          (cons '(?^ . ?^)
+                                (cdr items))))))
 
     (cond
      ;; Empty set: if negated, any char, otherwise match-nothing.
@@ -1152,7 +1158,12 @@ For extending the `rx' notation in FORM, use `rx-define' or `rx-let-eval'."
 
 (defun rx--to-expr (form)
   "Translate the rx-expression FORM to a Lisp expression yielding a regexp."
-  (let* ((rx--delayed-evaluation t)
+  (let* ((rx--local-definitions
+          ;; Retrieve local definitions from the macroexpansion environment.
+          ;; (It's unclear whether the previous value of `rx--local-definitions'
+          ;; should be included, and if so, in which order.)
+          (cdr (assq :rx-locals macroexpand-all-environment)))
+         (rx--delayed-evaluation t)
          (elems (car (rx--translate form)))
          (args nil))
     ;; Merge adjacent strings.
@@ -1282,12 +1293,7 @@ Additional constructs can be defined using `rx-define' and `rx-let',
 which see.
 
 \(fn REGEXPS...)"
-  ;; Retrieve local definitions from the macroexpansion environment.
-  ;; (It's unclear whether the previous value of `rx--local-definitions'
-  ;; should be included, and if so, in which order.)
-  (let ((rx--local-definitions
-         (cdr (assq :rx-locals macroexpand-all-environment))))
-    (rx--to-expr (cons 'seq regexps))))
+  (rx--to-expr (cons 'seq regexps)))
 
 (defun rx--make-binding (name tail)
   "Make a definitions entry out of TAIL.

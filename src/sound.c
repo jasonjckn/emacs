@@ -1,6 +1,6 @@
 /* sound.c -- sound support.
 
-Copyright (C) 1998-1999, 2001-2022 Free Software Foundation, Inc.
+Copyright (C) 1998-1999, 2001-2024 Free Software Foundation, Inc.
 
 Author: Gerd Moellmann <gerd@gnu.org>
 
@@ -1147,6 +1147,7 @@ alsa_write (struct sound_device *sd, const char *buffer, ptrdiff_t nbytes)
                 alsa_sound_perror ("Can't recover from underrun, prepare failed",
                                    err);
             }
+#ifdef ESTRPIPE
           else if (err == -ESTRPIPE)
             {
               while ((err = snd_pcm_resume (p->handle)) == -EAGAIN)
@@ -1160,6 +1161,7 @@ alsa_write (struct sound_device *sd, const char *buffer, ptrdiff_t nbytes)
                                        err);
                 }
             }
+#endif
           else
             alsa_sound_perror ("Error writing to sound device", err);
 

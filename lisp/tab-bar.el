@@ -1,6 +1,6 @@
 ;;; tab-bar.el --- frame-local tabs with named persistent window configurations -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2024 Free Software Foundation, Inc.
 
 ;; Author: Juri Linkov <juri@linkov.net>
 ;; Keywords: frames tabs
@@ -35,6 +35,8 @@
   (require 'cl-lib)
   (require 'seq)
   (require 'icons))
+
+(autoload 'cl--set-substring "cl-lib")
 
 
 (defgroup tab-bar nil
@@ -416,7 +418,7 @@ at the mouse-down event to the position at mouse-up event."
   "S-<wheel-right>" #'tab-bar-move-tab)
 
 (global-set-key [tab-bar]
-                `(menu-item ,(purecopy "tab bar") ignore
+                `(menu-item ,(purecopy "tab bar") ,(make-sparse-keymap)
                             :filter tab-bar-make-keymap))
 
 (defun tab-bar-make-keymap (&optional _ignore)
@@ -844,8 +846,9 @@ Function gets one argument: a tab."
 
 (defcustom tab-bar-tab-group-format-function #'tab-bar-tab-group-format-default
   "Function to format a tab group name.
-Function gets two arguments, a tab with a group name and its number,
-and should return the formatted tab group name to display in the tab bar."
+Function gets three arguments, a tab with a group name, its number, and
+an optional value that is non-nil when the tab is from the current group.
+It should return the formatted tab group name to display in the tab bar."
   :type 'function
   :initialize 'custom-initialize-default
   :set (lambda (sym val)
@@ -854,11 +857,11 @@ and should return the formatted tab group name to display in the tab bar."
   :group 'tab-bar
   :version "28.1")
 
-(defun tab-bar-tab-group-format-default (tab i)
+(defun tab-bar-tab-group-format-default (tab i &optional current-p)
   (propertize
-   (concat (if tab-bar-tab-hints (format "%d " i) "")
+   (concat (if (and tab-bar-tab-hints (not current-p)) (format "%d " i) "")
            (funcall tab-bar-tab-group-function tab))
-   'face 'tab-bar-tab-group-inactive))
+   'face (if current-p 'tab-bar-tab-group-current 'tab-bar-tab-group-inactive)))
 
 (defcustom tab-bar-tab-group-face-function #'tab-bar-tab-group-face-default
   "Function to define a tab group face.
@@ -882,8 +885,14 @@ when the tab is current.  Return the result as a keymap."
    `((,(intern (format "group-%i" i))
       menu-item
       ,(if current-p
-           (propertize (funcall tab-bar-tab-group-function tab)
-                       'face 'tab-bar-tab-group-current)
+           (condition-case nil
+               (funcall tab-bar-tab-group-format-function tab i current-p)
+             ;; We used to define tab-bar-tab-group-format-function as
+             ;; taking two arguments but after adding the third argument
+             ;; we need to provide backwards-compatibility.
+             (wrong-number-of-arguments
+              (propertize (funcall tab-bar-tab-group-function tab)
+                          'face 'tab-bar-tab-group-current)))
          (funcall tab-bar-tab-group-format-function tab i))
       ,(if current-p 'ignore
          (or
@@ -1014,7 +1023,7 @@ This variable has effect only when `tab-bar-auto-width' is non-nil."
   :initialize 'custom-initialize-default
   :set (lambda (sym val)
          (set-default sym val)
-         (setq tab-bar--fixed-width-hash nil))
+         (setq tab-bar--auto-width-hash nil))
   :group 'tab-bar
   :version "29.1")
 
@@ -1033,17 +1042,17 @@ tab bar might wrap to the second line when it shouldn't.")
      tab-bar-tab-group-inactive)
   "Resize tabs only with these faces.")
 
-(defvar tab-bar--fixed-width-hash nil
+(defvar tab-bar--auto-width-hash nil
   "Memoization table for `tab-bar-auto-width'.")
 
 (defun tab-bar-auto-width (items)
   "Return tab-bar items with resized tab names."
-  (unless tab-bar--fixed-width-hash
-    (define-hash-table-test 'tab-bar--fixed-width-hash-test
+  (unless tab-bar--auto-width-hash
+    (define-hash-table-test 'tab-bar--auto-width-hash-test
                             #'equal-including-properties
                             #'sxhash-equal-including-properties)
-    (setq tab-bar--fixed-width-hash
-          (make-hash-table :test 'tab-bar--fixed-width-hash-test)))
+    (setq tab-bar--auto-width-hash
+          (make-hash-table :test 'tab-bar--auto-width-hash-test)))
   (let ((tabs nil)    ;; list of resizable tabs
         (non-tabs "") ;; concatenated names of non-resizable tabs
         (width 0))    ;; resize tab names to this width
@@ -1071,7 +1080,7 @@ tab bar might wrap to the second line when it shouldn't.")
         (setf (nth 2 item)
               (with-memoization (gethash (list (selected-frame)
                                                width (nth 2 item))
-                                         tab-bar--fixed-width-hash)
+                                         tab-bar--auto-width-hash)
                 (let* ((name (nth 2 item))
                        (len (length name))
                        (close-p (get-text-property (1- len) 'close-tab name))
@@ -1082,7 +1091,9 @@ tab bar might wrap to the second line when it shouldn't.")
                    ((< prev-width width)
                     (let* ((space (apply 'propertize " "
                                          (text-properties-at 0 name)))
-                           (ins-pos (- len (if close-p 1 0)))
+                           (ins-pos (- len (if close-p
+                                               (length tab-bar-close-button)
+                                             0)))
                            (prev-name name))
                       (while continue
                         (setf (substring name ins-pos ins-pos) space)
@@ -1312,8 +1323,8 @@ Negative TAB-NUMBER counts tabs from the end of the tab bar."
 
          (ws
           ;; `window-state-put' fails when called in the minibuffer
-          (when (minibuffer-selected-window)
-            (select-window (minibuffer-selected-window)))
+          (when (window-minibuffer-p)
+            (select-window (get-mru-window)))
           (window-state-put ws nil 'safe)))
 
         ;; Select the minibuffer when it was active before switching tabs
@@ -1324,8 +1335,8 @@ Negative TAB-NUMBER counts tabs from the end of the tab bar."
         ;; another tab, then after going back to the first tab, it has
         ;; such inconsistent state that the current buffer is the minibuffer,
         ;; but its window is not active.  So try to undo this mess.
-        (when (and (minibufferp) (not (active-minibuffer-window)))
-          (other-window 1))
+        (when (and (window-minibuffer-p) (not (active-minibuffer-window)))
+          (select-window (get-mru-window)))
 
         (when tab-bar-history-mode
           (setq tab-bar-history-omit t))
@@ -1543,24 +1554,26 @@ After the tab is created, the hooks in
 
     (when tab-bar-new-tab-choice
       ;; Handle the case when it's called in the active minibuffer.
-      (when (minibuffer-selected-window)
-        (select-window (minibuffer-selected-window)))
-      ;; Remove window parameters that can cause problems
-      ;; with `delete-other-windows' and `split-window'.
-      (unless (eq tab-bar-new-tab-choice 'clone)
-        (set-window-parameter nil 'window-atom nil)
-        (set-window-parameter nil 'window-side nil))
-      (let ((ignore-window-parameters t))
+      (when (window-minibuffer-p)
+        (select-window (get-mru-window)))
+      (let ((ignore-window-parameters t)
+            (window--sides-inhibit-check t))
         (if (eq tab-bar-new-tab-choice 'clone)
             ;; Create new unique windows with the same layout
             (window-state-put (window-state-get))
+          ;; Remove window parameters that can cause problems
+          ;; with `delete-other-windows' and `split-window'.
+          (set-window-parameter nil 'window-atom nil)
           (delete-other-windows)
           (if (eq tab-bar-new-tab-choice 'window)
               ;; Create new unique window from remaining window
-              (window-state-put (window-state-get))
+              (progn
+                (set-window-parameter nil 'window-side nil)
+                (window-state-put (window-state-get)))
             ;; Create a new window to get rid of old window parameters
             ;; (e.g. prev/next buffers) of old window.
-            (split-window) (delete-window))))
+            (split-window nil window-safe-min-width t)
+            (delete-window))))
 
       (let ((buffer
              (if (and (functionp tab-bar-new-tab-choice)
@@ -2617,20 +2630,18 @@ When `switch-to-buffer-obey-display-actions' is non-nil,
 (keymap-set tab-prefix-map "t"   #'other-tab-prefix)
 
 (defvar-keymap tab-bar-switch-repeat-map
-  :doc "Keymap to repeat tab switch key sequences \\`C-x t o o O'.
+  :doc "Keymap to repeat tab switch commands `tab-next' and `tab-previous'.
 Used in `repeat-mode'."
+  :repeat t
   "o" #'tab-next
   "O" #'tab-previous)
-(put 'tab-next 'repeat-map 'tab-bar-switch-repeat-map)
-(put 'tab-previous 'repeat-map 'tab-bar-switch-repeat-map)
 
 (defvar-keymap tab-bar-move-repeat-map
-  :doc "Keymap to repeat tab move key sequences \\`C-x t m m M'.
+  :doc "Keymap to repeat tab move commands `tab-move' and `tab-bar-move-tab-backward'.
 Used in `repeat-mode'."
+  :repeat t
   "m" #'tab-move
   "M" #'tab-bar-move-tab-backward)
-(put 'tab-move 'repeat-map 'tab-bar-move-repeat-map)
-(put 'tab-bar-move-tab-backward 'repeat-map 'tab-bar-move-repeat-map)
 
 
 (provide 'tab-bar)

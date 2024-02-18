@@ -1,6 +1,6 @@
 /* X Communication module for terminals which understand the X protocol.
 
-Copyright (C) 1989, 1993-2022 Free Software Foundation, Inc.
+Copyright (C) 1989, 1993-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -4513,7 +4513,7 @@ x_dnd_send_position (struct frame *f, Window target, Window toplevel,
      maintained by the original author of the protocol specifies it
      for all versions.  Since at least one program supports these
      flags, but uses protocol v4 (and not v5), set them for all
-     protocool versions.  */
+     protocol versions.  */
   if (button >= 4 && button <= 7)
     {
       msg.xclient.data.l[1] |= (1 << 10);
@@ -5830,8 +5830,10 @@ void
 x_end_cr_clip (struct frame *f)
 {
   cairo_restore (FRAME_CR_CONTEXT (f));
+#ifdef HAVE_XDBE
   if (FRAME_X_DOUBLE_BUFFERED_P (f))
     x_mark_frame_dirty (f);
+#endif
 }
 
 void
@@ -7358,8 +7360,10 @@ x_update_end (struct frame *f)
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
 
 #ifdef USE_CAIRO
+# ifdef HAVE_XDBE
   if (!FRAME_X_DOUBLE_BUFFERED_P (f) && FRAME_CR_CONTEXT (f))
     cairo_surface_flush (cairo_get_target (FRAME_CR_CONTEXT (f)));
+# endif
 #endif
 
   /* If double buffering is disabled, finish the update here.
@@ -11483,7 +11487,9 @@ x_frame_highlight (struct frame *f)
   x_stop_ignoring_errors (dpyinfo);
   unblock_input ();
   gui_update_cursor (f, true);
-  x_set_frame_alpha (f);
+
+  if (!FRAME_X_OUTPUT (f)->alpha_identical_p)
+    x_set_frame_alpha (f);
 }
 
 static void
@@ -11507,7 +11513,15 @@ x_frame_unhighlight (struct frame *f)
   unblock_input ();
 
   gui_update_cursor (f, true);
-  x_set_frame_alpha (f);
+
+  /* Eschew modifying the frame alpha when the alpha values for
+     focused and background frames are identical; otherwise, this will
+     upset the order in which changes to the alpha property
+     immediately subsequent to a focus change are propagated into a
+     frame's alpha property.  (bug#66398) */
+
+  if (!FRAME_X_OUTPUT (f)->alpha_identical_p)
+    x_set_frame_alpha (f);
 }
 
 /* The focus has changed.  Update the frames as necessary to reflect
@@ -12215,7 +12229,7 @@ x_dnd_process_quit (struct frame *f, Time timestamp)
 /* This function is defined far away from the rest of the XDND code so
    it can utilize `x_any_window_to_frame'.  */
 
-/* Implementors beware!  On most other platforms (where drag-and-drop
+/* Implementers beware!  On most other platforms (where drag-and-drop
    data is not provided via selections, but some kind of serialization
    mechanism), it is usually much easier to implement a suitable
    primitive instead of copying the C code here, and then to build
@@ -20900,8 +20914,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  x_flush (WINDOW_XFRAME (XWINDOW (bar->window)));
 		}
 
+#ifdef HAVE_XDBE
 	      if (f && FRAME_X_DOUBLE_BUFFERED_P (f))
 		x_drop_xrender_surfaces (f);
+#endif
 
 	      goto OTHER;
 	    }
@@ -25786,7 +25802,7 @@ x_try_restore_frame (void)
 
   FOR_EACH_FRAME (tail, frame)
     {
-      if (!NILP (do_switch_frame (frame, 1, Qnil)))
+      if (!NILP (do_switch_frame (frame, 0, 1, Qnil)))
 	return;
     }
 }
@@ -30172,6 +30188,16 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 		       XkbNewKeyboardNotifyMask | XkbMapNotifyMask,
 		       XkbNewKeyboardNotifyMask | XkbMapNotifyMask);
     }
+
+  /* XFree86 extends XKBlib with a new Xlib control `ControlFallback',
+     which enables a search for symbols designating ASCII characters
+     within inactive groups during keycode translation when
+     ControlMask is set.  Users find this behavior gratuitous, so
+     disable it if present.  */
+
+#ifdef XkbLC_ControlFallback
+  XkbSetXlibControls (dpyinfo->display, XkbLC_ControlFallback, 0);
+#endif /* XkbLC_ControlFallback */
 #endif
 
 #ifdef HAVE_XFIXES

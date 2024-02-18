@@ -1,6 +1,6 @@
 /* Functions for the X Window System.
 
-Copyright (C) 1989, 1992-2022 Free Software Foundation, Inc.
+Copyright (C) 1989, 1992-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1758,19 +1758,17 @@ x_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 void
 x_change_tab_bar_height (struct frame *f, int height)
 {
-  int unit, old_height, lines;
-  Lisp_Object fullscreen;
-
-  unit = FRAME_LINE_HEIGHT (f);
-  old_height = FRAME_TAB_BAR_HEIGHT (f);
-  fullscreen = get_frame_param (f, Qfullscreen);
+  int unit = FRAME_LINE_HEIGHT (f);
+  int old_height = FRAME_TAB_BAR_HEIGHT (f);
 
   /* This differs from the tool bar code in that the tab bar height is
      not rounded up.  Otherwise, if redisplay_tab_bar decides to grow
      the tab bar by even 1 pixel, FRAME_TAB_BAR_LINES will be changed,
      leading to the tab bar height being incorrectly set upon the next
      call to x_set_font.  (bug#59285) */
-  lines = height / unit;
+  int lines = height / unit;
+  if (lines == 0 && height != 0)
+    lines = 1;
 
   /* Make sure we redisplay all windows in this frame.  */
   fset_redisplay (f);
@@ -1791,6 +1789,8 @@ x_change_tab_bar_height (struct frame *f, int height)
 
   if (!f->tab_bar_resized)
     {
+      Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
       /* As long as tab_bar_resized is false, effectively try to change
 	 F's native height.  */
       if (NILP (fullscreen) || EQ (fullscreen, Qfullwidth))
@@ -5108,6 +5108,17 @@ This function is an internal primitive--use `make-frame' instead.  */)
      adjust_frame_size call.  */
   gui_default_parameter (f, parms, Qfullscreen, Qnil,
                          "fullscreen", "Fullscreen", RES_TYPE_SYMBOL);
+
+#ifdef USE_CAIRO
+  /* Set the initial size of the Cairo surface to the frame's current
+     width and height.  If the window manager doesn't resize the new
+     frame after it's first mapped, Emacs will create a surface with
+     empty dimensions in response to to the initial exposure event,
+     which will persist until the next time it's resized.
+     (bug#64923) */
+  x_cr_update_surface_desired_size (f, FRAME_PIXEL_WIDTH (f),
+				    FRAME_PIXEL_HEIGHT (f));
+#endif /* USE_CAIRO */
 
   /* Make the window appear on the frame and enable display, unless
      the caller says not to.  However, with explicit parent, Emacs

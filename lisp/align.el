@@ -1,6 +1,6 @@
 ;;; align.el --- align text to a specific column, by regexp -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -179,7 +179,8 @@ If nil, then no messages will ever be printed to the minibuffer."
   :type '(choice (const :tag "Align a large region silently" nil) integer)
   :group 'align)
 
-(defcustom align-c++-modes '(c++-mode c-mode java-mode)
+(defcustom align-c++-modes '( c++-mode c-mode java-mode
+                              c-ts-mode c++-ts-mode)
   "A list of modes whose syntax resembles C/C++."
   :type '(repeat symbol)
   :group 'align)
@@ -1584,7 +1585,7 @@ aligner would have dealt with are."
                         (if (= (point) search-start)
                             (forward-char)))))
 
-                  ;; when they are no more matches for this rule,
+                  ;; when there are no more matches for this rule,
                   ;; align whatever was left over
                   (if regions
                       (align-regions regions align-props rule func))))))))

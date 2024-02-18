@@ -1,6 +1,6 @@
 /* File IO for GNU Emacs.
 
-Copyright (C) 1985-1988, 1993-2022 Free Software Foundation, Inc.
+Copyright (C) 1985-1988, 1993-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -758,7 +758,7 @@ DEFUN ("file-name-concat", Ffile_name_concat, Sfile_name_concat, 1, MANY, 0,
 Elements in COMPONENTS must be a string or nil.
 DIRECTORY or the non-final elements in COMPONENTS may or may not end
 with a slash -- if they don't end with a slash, a slash will be
-inserted before contatenating.
+inserted before concatenating.
 usage: (record DIRECTORY &rest COMPONENTS) */)
   (ptrdiff_t nargs, Lisp_Object *args)
 {
@@ -2427,15 +2427,10 @@ DEFUN ("make-directory-internal", Fmake_directory_internal,
   (Lisp_Object directory)
 {
   const char *dir;
-  Lisp_Object handler;
   Lisp_Object encoded_dir;
 
   CHECK_STRING (directory);
   directory = Fexpand_file_name (directory, Qnil);
-
-  handler = Ffind_file_name_handler (directory, Qmake_directory_internal);
-  if (!NILP (handler))
-    return call2 (handler, Qmake_directory_internal, directory);
 
   encoded_dir = ENCODE_FILE (directory);
 
@@ -4028,7 +4023,7 @@ by calling `format-decode', which see.  */)
   if (!S_ISREG (st.st_mode))
     {
       regular = false;
-      seekable = lseek (fd, 0, SEEK_CUR) < 0;
+      seekable = lseek (fd, 0, SEEK_CUR) != (off_t) -1;
 
       if (! NILP (visit))
         {
@@ -4468,6 +4463,8 @@ by calling `format-decode', which see.  */)
 
       if (unprocessed > 0)
 	{
+	  BUF_TEMP_SET_PT (XBUFFER (conversion_buffer),
+			   BUF_Z (XBUFFER (conversion_buffer)));
 	  coding.mode |= CODING_MODE_LAST_BLOCK;
 	  decode_coding_c_string (&coding, (unsigned char *) read_buf,
 				  unprocessed, conversion_buffer);
@@ -5274,6 +5271,7 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
     }
 
   record_unwind_protect (save_restriction_restore, save_restriction_save ());
+  labeled_restrictions_remove_in_current_buffer ();
 
   /* Special kludge to simplify auto-saving.  */
   if (NILP (start))
@@ -5392,12 +5390,16 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
     {
       /* Transfer data and metadata to disk, retrying if interrupted.
 	 fsync can report a write failure here, e.g., due to disk full
-	 under NFS.  But ignore EINVAL, which means fsync is not
-	 supported on this file.  */
+	 under NFS.  But ignore EINVAL (and EBADF on Windows), which
+	 means fsync is not supported on this file.  */
       while (fsync (desc) != 0)
 	if (errno != EINTR)
 	  {
-	    if (errno != EINVAL)
+	    if (errno != EINVAL
+#ifdef WINDOWSNT
+		&& errno != EBADF
+#endif
+		)
 	      ok = 0, save_errno = errno;
 	    break;
 	  }

@@ -1,6 +1,6 @@
 ;;; characters.el --- set syntax and category for multibyte characters  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 2000-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2000-2024 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -141,10 +141,10 @@ with L, LRE, or LRO Unicode bidi character type.")
 ;; Chinese characters (Unicode)
 (modify-category-entry '(#x2E80 . #x312F) ?|)
 (modify-category-entry '(#x3190 . #x33FF) ?|)
-(modify-category-entry '(#x3400 . #x4DB5) ?C)
-(modify-category-entry '(#x4E00 . #x9FD5) ?C)
-(modify-category-entry '(#x3400 . #x9FD5) ?c)
-(modify-category-entry '(#x3400 . #x9FD5) ?|)
+(modify-category-entry '(#x3400 . #x4DBF) ?C)
+(modify-category-entry '(#x4E00 . #x9FFF) ?C)
+(modify-category-entry '(#x3400 . #x9FFF) ?c)
+(modify-category-entry '(#x3400 . #x9FFF) ?|)
 (modify-category-entry '(#xF900 . #xFAFF) ?C)
 (modify-category-entry '(#xF900 . #xFAFF) ?c)
 (modify-category-entry '(#xF900 . #xFAFF) ?|)
@@ -184,7 +184,7 @@ with L, LRE, or LRO Unicode bidi character type.")
 
 (dolist (c '(chinese-cns11643-1 chinese-cns11643-2 chinese-cns11643-3
 	     chinese-cns11643-4 chinese-cns11643-5 chinese-cns11643-6
-	     chinese-cns11643-7))
+	     chinese-cns11643-7 chinese-cns11643-15))
   (map-charset-chars #'modify-category-entry c ?c)
   (if (eq c 'chinese-cns11643-1)
       (map-charset-chars #'modify-category-entry c ?C #x4421 #x7E7E)
@@ -693,6 +693,16 @@ with L, LRE, or LRO Unicode bidi character type.")
   (setq c #x2B00)
   (while (<= c #x2BFF)
     (set-case-syntax c "_" tbl)
+    (setq c (1+ c)))
+
+  ;; Traditional Mongolian
+  (setq c #x1800)
+  (while (<= c #x180A)
+    (set-case-syntax c "." tbl)
+    (setq c (1+ c)))
+  (setq c #x11660)
+  (while (<= c #x1166C)
+    (set-case-syntax c "." tbl)
     (setq c (1+ c)))
 
   ;; Coptic
@@ -1470,6 +1480,9 @@ Setup `char-width-table' appropriate for non-CJK language environment."
 ;; Fix some exceptions that blocks.awk/Blocks.txt couldn't get right.
 (set-char-table-range char-script-table '(#x2ea . #x2eb) 'bopomofo)
 (set-char-table-range char-script-table #xab65 'greek)
+(set-char-table-range char-script-table #x16fe0 'tangut)
+(set-char-table-range char-script-table #x16fe1 'nushu)
+
 
 
 ;;; Setting unicode-category-table.

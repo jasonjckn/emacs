@@ -1,6 +1,6 @@
 ;;; cl-preloaded.el --- Preloaded part of the CL library  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2022  Free Software Foundation, Inc
+;; Copyright (C) 2015-2024 Free Software Foundation, Inc
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -176,6 +176,7 @@ supertypes from the most specific to least specific.")
                        (i 0)
                        (offset (if type 0 1)))
                    (dolist (slot slots)
+                     (put (car slot) 'slot-name t)
                      (let* ((props (cl--plist-to-alist (cddr slot)))
                             (typep (assq :type props))
                             (type (if (null typep) t

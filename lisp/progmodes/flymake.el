@@ -1,6 +1,6 @@
 ;;; flymake.el --- A universal on-the-fly syntax checker  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2024 Free Software Foundation, Inc.
 
 ;; Author: Pavel Kobyakov <pk_at_work@yahoo.com>
 ;; Maintainer: João Távora <joaotavora@gmail.com>
@@ -54,9 +54,8 @@
 ;; (question mark) if no backends were even configured.
 ;;
 ;; For programmers interested in writing a new Flymake backend, the
-;; docstring of `flymake-diagnostic-functions', the Flymake manual,
-;; and the code of existing backends are probably a good starting
-;; point.
+;; docstring of `flymake-diagnostic-functions', the Flymake manual, and the
+;; code of existing backends are probably good starting points.
 ;;
 ;; The user wishing to customize the appearance of error types should
 ;; set properties on the symbols associated with each diagnostic type.
@@ -1188,9 +1187,9 @@ special *Flymake log* buffer."  :group 'flymake :lighter
     (when flymake--state
       (maphash (lambda (_backend state)
                  (flymake--clear-foreign-diags state))
-               flymake--state)))
+               flymake--state))))
    ;; turning Flymake on or off has consequences for listings
-   (flymake--update-diagnostics-listings (current-buffer))))
+   (flymake--update-diagnostics-listings (current-buffer)))
 
 (defun flymake--schedule-timer-maybe ()
   "(Re)schedule an idle timer for checking the buffer.
@@ -1474,6 +1473,12 @@ TYPE is usually keyword `:error', `:warning' or `:note'."
          ,(format "%d" count)
          face ,face
          mouse-face mode-line-highlight
+         help-echo ,(format "Number of %s; scroll mouse to view."
+                            (cond
+                             ((eq type :error) "errors")
+                             ((eq type :warning) "warnings")
+                             ((eq type :note) "notes")
+                             (t (format "%s diagnostics" type))))
          keymap
          ,(let ((map (make-sparse-keymap)))
             (define-key map (vector 'mode-line

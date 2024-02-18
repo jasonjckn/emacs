@@ -1,6 +1,6 @@
 ;;; subr-x.el --- extra Lisp functions  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: convenience
@@ -322,18 +322,23 @@ as the new values of the bound variables in the recursive invocation."
     ;; Keeping a work buffer around is more efficient than creating a
     ;; new temporary buffer.
     (with-current-buffer (get-buffer-create " *string-pixel-width*")
-      ;; `display-line-numbers-mode' is enabled in internal buffers
-      ;; that breaks width calculation, so need to disable (bug#59311)
-      (when (bound-and-true-p display-line-numbers-mode)
-        (display-line-numbers-mode -1))
+      ;; If `display-line-numbers' is enabled in internal buffers
+      ;; (e.g. globally), it breaks width calculation (bug#59311)
+      (setq-local display-line-numbers nil)
       (delete-region (point-min) (point-max))
-      (insert string)
+      ;; Disable line-prefix and wrap-prefix, for the same reason.
+      (setq line-prefix nil
+	    wrap-prefix nil)
+      (insert (propertize string 'line-prefix nil 'wrap-prefix nil))
       (car (buffer-text-pixel-size nil nil t)))))
 
 ;;;###autoload
 (defun string-glyph-split (string)
   "Split STRING into a list of strings representing separate glyphs.
-This takes into account combining characters and grapheme clusters."
+This takes into account combining characters and grapheme clusters:
+if compositions are enabled, each sequence of characters composed
+on display into a single grapheme cluster is treated as a single
+indivisible unit."
   (let ((result nil)
         (start 0)
         comp)
@@ -370,7 +375,8 @@ this defaults to the current buffer."
                                                    (min end (point-max)))))
       (if (not (setq disp (get-text-property sub-start 'display object)))
           ;; No old properties in this range.
-          (put-text-property sub-start sub-end 'display (list prop value))
+          (put-text-property sub-start sub-end 'display (list prop value)
+                             object)
         ;; We have old properties.
         (let ((vector nil))
           ;; Make disp into a list.
@@ -390,7 +396,7 @@ this defaults to the current buffer."
           (when vector
             (setq disp (seq-into disp 'vector)))
           ;; Finally update the range.
-          (put-text-property sub-start sub-end 'display disp)))
+          (put-text-property sub-start sub-end 'display disp object)))
       (setq sub-start sub-end))))
 
 ;;;###autoload
@@ -398,7 +404,7 @@ this defaults to the current buffer."
   "Query the user for a process and return the process object."
   ;; Currently supports only the PROCESS argument.
   ;; Must either return a list containing a process, or signal an error.
-  ;; (Returning `nil' would mean the current buffer's process.)
+  ;; (Returning nil would mean the current buffer's process.)
   (unless (fboundp 'process-list)
     (error "Asynchronous subprocesses are not supported on this system"))
   ;; Local function to return cons of a complete-able name, and the

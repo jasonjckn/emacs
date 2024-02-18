@@ -1,6 +1,6 @@
 /* Communication module for window systems using GTK.
 
-Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2022 Free Software
+Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2024 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -376,6 +376,13 @@ mark_pgtkterm (void)
   for (i = 0; i < n; i++)
     {
       union buffered_input_event *ev = &evq->q[i];
+
+      /* Selection requests don't have Lisp object members.  */
+
+      if (ev->ie.kind == SELECTION_REQUEST_EVENT
+	  || ev->ie.kind == SELECTION_CLEAR_EVENT)
+	continue;
+
       mark_object (ev->ie.x);
       mark_object (ev->ie.y);
       mark_object (ev->ie.frame_or_window);
@@ -1321,14 +1328,17 @@ fill_background_by_face (struct frame *f, struct face *face, int x, int y,
 			 int width, int height)
 {
   cairo_t *cr = pgtk_begin_cr_clip (f);
+  double r, g, b, a;
 
+  cairo_set_operator (cr, CAIRO_OPERATOR_SOURCE);
   cairo_rectangle (cr, x, y, width, height);
   cairo_clip (cr);
 
-  double r = ((face->background >> 16) & 0xff) / 255.0;
-  double g = ((face->background >> 8) & 0xff) / 255.0;
-  double b = ((face->background >> 0) & 0xff) / 255.0;
-  cairo_set_source_rgb (cr, r, g, b);
+  r = ((face->background >> 16) & 0xff) / 255.0;
+  g = ((face->background >> 8) & 0xff) / 255.0;
+  b = ((face->background >> 0) & 0xff) / 255.0;
+  a = f->alpha_background;
+  cairo_set_source_rgba (cr, r, g, b, a);
   cairo_paint (cr);
 
   if (face->stipple != 0)
@@ -1336,10 +1346,10 @@ fill_background_by_face (struct frame *f, struct face *face, int x, int y,
       cairo_pattern_t *mask
 	= FRAME_DISPLAY_INFO (f)->bitmaps[face->stipple - 1].pattern;
 
-      double r = ((face->foreground >> 16) & 0xff) / 255.0;
-      double g = ((face->foreground >> 8) & 0xff) / 255.0;
-      double b = ((face->foreground >> 0) & 0xff) / 255.0;
-      cairo_set_source_rgb (cr, r, g, b);
+      r = ((face->foreground >> 16) & 0xff) / 255.0;
+      g = ((face->foreground >> 8) & 0xff) / 255.0;
+      b = ((face->foreground >> 0) & 0xff) / 255.0;
+      cairo_set_source_rgba (cr, r, g, b, a);
       cairo_mask (cr, mask);
     }
 
@@ -2959,7 +2969,8 @@ pgtk_draw_window_cursor (struct window *w, struct glyph_row *glyph_row, int x,
       if (w == XWINDOW (f->selected_window))
 	{
 	  int frame_x = (WINDOW_TO_FRAME_PIXEL_X (w, x)
-			 + WINDOW_LEFT_FRINGE_WIDTH (w));
+			 + WINDOW_LEFT_FRINGE_WIDTH (w)
+			 + WINDOW_LEFT_MARGIN_WIDTH (w));
 	  int frame_y = WINDOW_TO_FRAME_PIXEL_Y (w, y);
 	  pgtk_im_set_cursor_location (f, frame_x, frame_y,
 				       w->phys_cursor_width,
@@ -6245,7 +6256,7 @@ symbol_to_drag_action (Lisp_Object act)
   if (NILP (act))
     return GDK_ACTION_DEFAULT;
 
-  signal_error ("Invalid drag acction", act);
+  signal_error ("Invalid drag action", act);
 }
 
 static Lisp_Object

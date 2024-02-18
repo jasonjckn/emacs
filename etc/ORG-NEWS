@@ -6,7 +6,7 @@ ORG NEWS -- history of user-visible changes.   -*- mode: org; coding: utf-8 -*-
 #+LINK: msg https://list.orgmode.org/%s/
 #+LINK: git https://git.savannah.gnu.org/cgit/emacs/org-mode.git/commit/?id=%s
 
-Copyright (C) 2012-2022 Free Software Foundation, Inc.
+Copyright (C) 2012-2024 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 Please send Org bug reports to mailto:emacs-orgmode@gnu.org.
@@ -24,7 +24,7 @@ the time being.  It will be removed in the next release.
 
 See https://orgmode.org/list/87r0yk7bx8.fsf@localhost for more details.
 
-*** Element cache is enabled by default and work for headings
+*** Element cache is enabled by default and works for headings
 
 The old element cache code has been refactored.  Emacs does not hang
 anymore when the cache is enabled.
@@ -332,7 +332,7 @@ When the block type starts from the upper case, structure template
 will now insert =#+BEGIN_TYPE=.  Previously, lower-case =#+begin_type= was inserted unconditionally.
 *** New ox-latex tabbing support for tables.
 
-Latex tables can now be exported to the latex tabbing environment
+LaTeX tables can now be exported to the latex tabbing environment
 tabbing environment]].
 This is done by adding =#+ATTR_LATEX: :mode tabbing= at the top
 of the table.
@@ -733,7 +733,7 @@ following snippet to allow multiple different ID formats in Org files.
           (and (or (org-uuidgen-p id)
 	           (string-match-p "[0-9a-z]\\{12\\}" id))
 	       (org-attach-id-uuid-folder-format id)))
-        ;; When ID looks like a timestap-based ID. Group by year-month
+        ;; When ID looks like a timestamp-based ID. Group by year-month
         ;; folders.
         (lambda (id)
           (and (string-match-p "[0-9]\\{8\\}T[0-9]\\{6\\}\.[0-9]\\{6\\}" id)
@@ -1098,7 +1098,7 @@ Conversion to SVG exposes a number of additional customizations that
 give the user full control over the contents of the latex source
 block. ~org-babel-latex-preamble~, ~org-babel-latex-begin-env~ and
 ~org-babel-latex-end-env~ are new customization options added to allow
-the user to specify the preamble and code that preceedes and proceeds
+the user to specify the preamble and code that precedes and proceeds
 the contents of the source block.
 
 *** New option ~org-html-meta-tags~ allows for HTML meta tags customization
@@ -4284,7 +4284,7 @@ parameters specific to some pre-defined translators, e.g.,
 ~:environment~ and ~:booktabs~ for ~orgtbl-to-latex~.  See translators
 docstrings (including ~orgtbl-to-generic~) for details.
 
-*** Non-floating minted listings in Latex export
+*** Non-floating minted listings in LaTeX export
 
 It is not possible to specify =#+attr_latex: :float nil= in conjunction
 with source blocks exported by the minted package.
@@ -5431,9 +5431,9 @@ doing computation.
 
 There are now three lookup functions:
 
-- [[doc:org-loopup-first][org-loopup-first]]
-- [[doc:org-loopup-last][org-loopup-last]]
-- [[doc:org-loopup-all][org-loopup-all]]
+- [[doc:org-lookup-first][org-lookup-first]]
+- [[doc:org-lookup-last][org-lookup-last]]
+- [[doc:org-lookup-all][org-lookup-all]]
 
 See [[https://orgmode.org/org.html#Lookup-functions][the manual]] for details.
 *** Startup keywords
@@ -6540,7 +6540,7 @@ that Calc formulas can operate on them.
 
 *** Hyperlinks
 
-**** Org-Bibtex -- major improvements
+**** Org-BibTeX -- major improvements
 
      Provides support for managing bibtex bibliographical references
      data in headline properties.  Each headline corresponds to a

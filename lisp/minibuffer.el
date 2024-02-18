@@ -1,6 +1,6 @@
 ;;; minibuffer.el --- Minibuffer and completion functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2024 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -715,11 +715,21 @@ for use at QPOS."
   "Text properties added to the text shown by `minibuffer-message'.")
 
 (defun minibuffer-message (message &rest args)
-  "Temporarily display MESSAGE at the end of the minibuffer.
-The text is displayed for `minibuffer-message-timeout' seconds,
-or until the next input event arrives, whichever comes first.
-Enclose MESSAGE in [...] if this is not yet the case.
-If ARGS are provided, then pass MESSAGE through `format-message'."
+  "Temporarily display MESSAGE at the end of minibuffer text.
+This function is designed to be called from the minibuffer, i.e.,
+when Emacs prompts the user for some input, and the user types
+into the minibuffer.  If called when the current buffer is not
+the minibuffer, this function just calls `message', and thus
+displays MESSAGE in the echo-area.
+When called from the minibuffer, this function displays MESSAGE
+at the end of minibuffer text for `minibuffer-message-timeout'
+seconds, or until the next input event arrives, whichever comes first.
+It encloses MESSAGE in [...] if it is not yet enclosed.
+The intent is to show the message without hiding what the user typed.
+If ARGS are provided, then the function first passes MESSAGE
+through `format-message'.
+If some of the minibuffer text has the `minibuffer-message' text
+property, MESSAGE is shown at that position instead of EOB."
   (if (not (minibufferp (current-buffer) t))
       (progn
         (if args
@@ -796,7 +806,7 @@ The minibuffer message functions include `minibuffer-message' and
       (next-single-property-change pt 'minibuffer-message nil (point-max)))))
 
 (defun set-minibuffer-message (message)
-  "Temporarily display MESSAGE at the end of the minibuffer.
+  "Temporarily display MESSAGE at the end of the active minibuffer window.
 If some part of the minibuffer text has the `minibuffer-message' property,
 the message will be displayed before the first such character, instead of
 at the end of the minibuffer.
@@ -862,7 +872,18 @@ If a function returns a string, the returned string is given to the
 next function in the list, and if the last function returns a string,
 it's displayed in the echo area.
 If a function returns any other non-nil value, no more functions are
-called from the list, and no message will be displayed in the echo area."
+called from the list, and no message will be displayed in the echo area.
+
+Useful functions to add to this list are:
+
+ `inhibit-message'        -- if this function is the first in the list,
+                             messages that match the value of
+                             `inhibit-message-regexps' will be suppressed.
+ `set-multi-message'      -- accumulate multiple messages and display them
+                             together as a single message.
+ `set-minibuffer-message' -- if the minibuffer is active, display the
+                             message at the end of the minibuffer text
+                             (this is the default)."
   :type '(choice (const :tag "No special message handling" nil)
                  (repeat
                   (choice (function-item :tag "Inhibit some messages"
@@ -884,13 +905,18 @@ called from the list, and no message will be displayed in the echo area."
   message)
 
 (defcustom inhibit-message-regexps nil
-  "List of regexps that inhibit messages by the function `inhibit-message'."
+  "List of regexps that inhibit messages by the function `inhibit-message'.
+When the list in `set-message-functions' has `inhibit-message' as its
+first element, echo-area messages which match the value of this variable
+will not be displayed."
   :type '(repeat regexp)
   :version "29.1")
 
 (defun inhibit-message (message)
   "Don't display MESSAGE when it matches the regexp `inhibit-message-regexps'.
-This function is intended to be added to `set-message-functions'."
+This function is intended to be added to `set-message-functions'.
+To suppress display of echo-area messages that match `inhibit-message-regexps',
+make this function be the first element of `set-message-functions'."
   (or (and (consp inhibit-message-regexps)
            (string-match-p (mapconcat #'identity inhibit-message-regexps "\\|")
                            message))
@@ -912,6 +938,10 @@ This function is intended to be added to `set-message-functions'."
 
 (defun set-multi-message (message)
   "Return recent messages as one string to display in the echo area.
+Individual messages will be separated by a newline.
+Up to `multi-message-max' messages can be accumulated, and the
+accumulated messages are discarded when `multi-message-timeout'
+seconds have elapsed since the first message.
 Note that this feature works best only when `resize-mini-windows'
 is at its default value `grow-only'."
   (let ((last-message (car multi-message-list)))
@@ -934,7 +964,7 @@ is at its default value `grow-only'."
                multi-message-separator)))
 
 (defun clear-minibuffer-message ()
-  "Clear minibuffer message.
+  "Clear message temporarily shown in the minibuffer.
 Intended to be called via `clear-message-function'."
   (when (not noninteractive)
     (when (timerp minibuffer-message-timer)
@@ -986,7 +1016,7 @@ already visible.
 If the value is `visible', the *Completions* buffer is displayed
 whenever completion is requested but cannot be done for the first time,
 but remains visible thereafter, and the list of completions in it is
-updated for subsequent attempts to complete.."
+updated for subsequent attempts to complete."
   :type '(choice (const :tag "Don't show" nil)
                  (const :tag "Show only when cannot complete" t)
                  (const :tag "Show after second failed completion attempt" lazy)
@@ -1326,9 +1356,9 @@ pair of a group title string and a list of group candidate strings."
   :version "28.1")
 
 (defface completions-group-separator
-  '((t :inherit shadow :underline t))
+  '((t :inherit shadow :strike-through t))
   "Face used for the separator lines between the candidate groups."
-  :version "29.1")
+  :version "28.1")
 
 (defun completion--cycle-threshold (metadata)
   (let* ((cat (completion-metadata-get metadata 'category))
@@ -1474,7 +1504,10 @@ when the buffer's text is already an exact match."
               (if (and (eq this-command last-command) completion-auto-help)
                   (minibuffer-completion-help beg end))
               (completion--done completion 'exact
-                                (unless expect-exact
+                                (unless (or expect-exact
+                                            (and completion-auto-select
+                                                 (eq this-command last-command)
+                                                 completion-auto-help))
                                   "Complete, but not unique"))))
 
             (minibuffer--bitset completed t exact))))))))
@@ -1814,10 +1847,13 @@ appear to be a match."
    ;; Allow user to specify null string
    ((= beg end) (funcall exit-function))
    ;; The CONFIRM argument is a predicate.
-   ((and (functionp minibuffer-completion-confirm)
-         (funcall minibuffer-completion-confirm
-                  (buffer-substring beg end)))
-    (funcall exit-function))
+   ((functionp minibuffer-completion-confirm)
+    (if (funcall minibuffer-completion-confirm
+                 (buffer-substring beg end))
+        (funcall exit-function)
+      (unless completion-fail-discreetly
+	(ding)
+	(completion--message "No match"))))
    ;; See if we have a completion from the table.
    ((test-completion (buffer-substring beg end)
                      minibuffer-completion-table
@@ -2002,11 +2038,14 @@ completions."
 
 (defcustom completions-header-format
   (propertize "%s possible completions:\n" 'face 'shadow)
-  "Format of completions header.
-It may contain one %s to show the total count of completions.
-When nil, no header is shown."
-  :type '(choice (const :tag "No header" nil)
-                 (string :tag "Header format string"))
+  "If non-nil, the format string for completions heading line.
+The heading line is inserted before the completions, and is intended
+to summarize the completions.
+The format string may include one %s, which will be replaced with
+the total count of possible completions.
+If this is nil, no heading line will be shown."
+  :type '(choice (const :tag "No heading line" nil)
+                 (string :tag "Format string for heading line"))
   :version "29.1")
 
 (defun completion--insert-strings (strings &optional group-fun)
@@ -2362,9 +2401,11 @@ These include:
           ;; If there are no completions, or if the current input is already
           ;; the sole completion, then hide (previous&stale) completions.
           (minibuffer-hide-completions)
-          (ding)
-          (completion--message
-           (if completions "Sole completion" "No completions")))
+          (if completions
+              (completion--message "Sole completion")
+            (unless completion-fail-discreetly
+	      (ding)
+	      (completion--message "No match"))))
 
       (let* ((last (last completions))
              (base-size (or (cdr last) 0))
@@ -3221,9 +3262,10 @@ Fourth arg MUSTMATCH can take the following values:
   input, but she needs to confirm her choice if she called
   `minibuffer-complete' right before `minibuffer-complete-and-exit'
   and the input is not an existing file.
-- a function, which will be called with the input as the
-  argument.  If the function returns a non-nil value, the
-  minibuffer is exited with that argument as the value.
+- a function, which will be called with a single argument, the
+  input unquoted by `substitute-in-file-name', which see.  If the
+  function returns a non-nil value, the minibuffer is exited with
+  that argument as the value.
 - anything else behaves like t except that typing RET does not exit if it
   does non-null completion.
 
@@ -3312,7 +3354,13 @@ See `read-file-name' for the meaning of the arguments."
     (let ((ignore-case read-file-name-completion-ignore-case)
           (minibuffer-completing-file-name t)
           (pred (or predicate 'file-exists-p))
-          (add-to-history nil))
+          (add-to-history nil)
+          (require-match (if (functionp mustmatch)
+                             (lambda (input)
+                               (funcall mustmatch
+                                        ;; User-supplied MUSTMATCH expects an unquoted filename
+                                        (substitute-in-file-name input)))
+                           mustmatch)))
 
       (let* ((val
               (if (or (not (next-read-file-uses-dialog-p))
@@ -3348,7 +3396,7 @@ See `read-file-name' for the meaning of the arguments."
 				   (read-file-name--defaults dir initial))))
 			  (set-syntax-table minibuffer-local-filename-syntax))
                       (completing-read prompt 'read-file-name-internal
-                                       pred mustmatch insdef
+                                       pred require-match insdef
                                        'file-name-history default-filename)))
                 ;; If DEFAULT-FILENAME not supplied and DIR contains
                 ;; a file name, split it.
@@ -3989,7 +4037,8 @@ the same set of elements."
               (setq ccs (nreverse ccs))
               (let* ((prefix (try-completion fixed comps))
                      (unique (or (and (eq prefix t) (setq prefix fixed))
-                                 (eq t (try-completion prefix comps)))))
+                                 (and (stringp prefix)
+                                      (eq t (try-completion prefix comps))))))
                 (unless (or (eq elem 'prefix)
                             (equal prefix ""))
                   (push prefix res))
@@ -4371,9 +4420,9 @@ after the end of the prompt, move to the end of the prompt.
 Otherwise move to the start of the buffer."
   (declare (interactive-only "use `(goto-char (point-min))' instead."))
   (interactive "^P")
-  (when (or (consp arg)
-            (region-active-p))
-    (push-mark))
+  (or (consp arg)
+      (region-active-p)
+      (push-mark))
   (goto-char (cond
               ;; We want to go N/10th of the way from the beginning.
               ((and arg (not (consp arg)))
@@ -4457,13 +4506,26 @@ selected by these commands to the minibuffer."
 When `minibuffer-completion-auto-choose' is non-nil, then also
 insert the selected completion to the minibuffer."
   (interactive "p")
-  (let ((auto-choose minibuffer-completion-auto-choose))
+  (let ((auto-choose minibuffer-completion-auto-choose)
+         (buf (current-buffer)))
     (with-minibuffer-completions-window
       (when completions-highlight-face
         (setq-local cursor-face-highlight-nonselected-window t))
       (next-completion (or n 1))
       (when auto-choose
-        (let ((completion-use-base-affixes t))
+        (let* ((completion-use-base-affixes t)
+               ;; Backported fix for bug#62700
+               (md
+                (with-current-buffer buf
+                  (completion--field-metadata (minibuffer--completion-prompt-end))))
+               (base-suffix
+                (if (eq (alist-get 'category (cdr md)) 'file)
+                    (with-current-buffer buf
+                      (buffer-substring
+                       (save-excursion (or (search-forward "/" nil t) (point-max)))
+                       (point-max)))
+                  ""))
+              (completion-base-affixes (list (car completion-base-affixes) base-suffix)))
           (choose-completion nil t t))))))
 
 (defun minibuffer-previous-completion (&optional n)
@@ -4482,9 +4544,18 @@ of `completion-no-auto-exit'.
 If NO-QUIT is non-nil, insert the completion at point to the
 minibuffer, but don't quit the completions window."
   (interactive "P")
-  (with-minibuffer-completions-window
-    (let ((completion-use-base-affixes t))
-      (choose-completion nil no-exit no-quit))))
+  ;; Backported fix for bug#62700
+  (let* ((md (completion--field-metadata (minibuffer--completion-prompt-end)))
+         (base-suffix
+          (if (eq (alist-get 'category (cdr md)) 'file)
+              (buffer-substring
+               (save-excursion (or (search-forward "/" nil t) (point-max)))
+               (point-max))
+            "")))
+    (with-minibuffer-completions-window
+      (let ((completion-use-base-affixes t)
+            (completion-base-affixes (list (car completion-base-affixes) base-suffix)))
+        (choose-completion nil no-exit no-quit)))))
 
 (defun minibuffer-complete-history ()
   "Complete the minibuffer history as far as possible.

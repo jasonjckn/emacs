@@ -1,6 +1,6 @@
 /* Lisp parsing and input streams.
 
-Copyright (C) 1985-1989, 1993-1995, 1997-2022 Free Software Foundation,
+Copyright (C) 1985-1989, 1993-1995, 1997-2024 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -2255,6 +2255,7 @@ readevalloop (Lisp_Object readcharfun,
 	  record_unwind_protect_excursion ();
 	  /* Save ZV in it.  */
 	  record_unwind_protect (save_restriction_restore, save_restriction_save ());
+	  labeled_restrictions_remove_in_current_buffer ();
 	  /* Those get unbound after we read one expression.  */
 
 	  /* Set point and ZV around stuff to be read.  */
@@ -3285,7 +3286,7 @@ bytecode_from_rev_list (Lisp_Object elems, Lisp_Object readcharfun)
 	     Convert them back to the original unibyte form.  */
 	  vec[COMPILED_BYTECODE] = Fstring_as_unibyte (vec[COMPILED_BYTECODE]);
 	}
-      // Bytecode must be immovable.
+      /* Bytecode must be immovable.  */
       pin_string (vec[COMPILED_BYTECODE]);
     }
 
@@ -3375,7 +3376,7 @@ read_bool_vector (Lisp_Object readcharfun)
 	  break;
 	}
       if (INT_MULTIPLY_WRAPV (length, 10, &length)
-	  | INT_ADD_WRAPV (length, c - '0', &length))
+	  || INT_ADD_WRAPV (length, c - '0', &length))
 	invalid_syntax ("#&", readcharfun);
     }
 
@@ -3399,8 +3400,9 @@ read_bool_vector (Lisp_Object readcharfun)
 }
 
 /* Skip (and optionally remember) a lazily-loaded string
-   preceded by "#@".  */
-static void
+   preceded by "#@".  Return true if this was a normal skip,
+   false if we read #@00 (which skips to EOB/EOF).  */
+static bool
 skip_lazy_string (Lisp_Object readcharfun)
 {
   ptrdiff_t nskip = 0;
@@ -3421,14 +3423,14 @@ skip_lazy_string (Lisp_Object readcharfun)
 	  break;
 	}
       if (INT_MULTIPLY_WRAPV (nskip, 10, &nskip)
-	  | INT_ADD_WRAPV (nskip, c - '0', &nskip))
+	  || INT_ADD_WRAPV (nskip, c - '0', &nskip))
 	invalid_syntax ("#@", readcharfun);
       digits++;
       if (digits == 2 && nskip == 0)
 	{
-	  /* #@00 means "skip to end" */
+	  /* #@00 means "read nil and skip to end" */
 	  skip_dyn_eof (readcharfun);
-	  return;
+	  return false;
 	}
     }
 
@@ -3475,6 +3477,8 @@ skip_lazy_string (Lisp_Object readcharfun)
   else
     /* Skip that many bytes.  */
     skip_dyn_bytes (readcharfun, nskip);
+
+  return true;
 }
 
 /* Given a lazy-loaded string designator VAL, return the actual string.
@@ -3932,8 +3936,10 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 	    /* #@NUMBER is used to skip NUMBER following bytes.
 	       That's used in .elc files to skip over doc strings
 	       and function definitions that can be loaded lazily.  */
-	    skip_lazy_string (readcharfun);
-	    goto read_obj;
+	    if (skip_lazy_string (readcharfun))
+	      goto read_obj;
+	    obj = Qnil;	      /* #@00 skips to EOB/EOF and yields nil.  */
+	    break;
 
 	  case '$':
 	    /* #$ -- reference to lazy-loaded string */
@@ -5468,15 +5474,6 @@ to the specified file name if a suffix is allowed or required.  */);
   Vload_suffixes =
     Fcons (build_pure_c_string (MODULES_SECONDARY_SUFFIX), Vload_suffixes);
 #endif
-
-  DEFVAR_LISP ("dynamic-library-suffixes", Vdynamic_library_suffixes,
-	       doc: /* A list of suffixes for loadable dynamic libraries.  */);
-  Vdynamic_library_suffixes =
-    Fcons (build_pure_c_string (DYNAMIC_LIB_SECONDARY_SUFFIX), Qnil);
-  Vdynamic_library_suffixes =
-    Fcons (build_pure_c_string (DYNAMIC_LIB_SUFFIX),
-	   Vdynamic_library_suffixes);
-
 #endif
   DEFVAR_LISP ("module-file-suffix", Vmodule_file_suffix,
 	       doc: /* Suffix of loadable module file, or nil if modules are not supported.  */);
@@ -5485,6 +5482,20 @@ to the specified file name if a suffix is allowed or required.  */);
 #else
   Vmodule_file_suffix = Qnil;
 #endif
+
+  DEFVAR_LISP ("dynamic-library-suffixes", Vdynamic_library_suffixes,
+	       doc: /* A list of suffixes for loadable dynamic libraries.  */);
+
+#ifndef MSDOS
+  Vdynamic_library_suffixes
+    = Fcons (build_pure_c_string (DYNAMIC_LIB_SECONDARY_SUFFIX), Qnil);
+  Vdynamic_library_suffixes
+    = Fcons (build_pure_c_string (DYNAMIC_LIB_SUFFIX),
+	     Vdynamic_library_suffixes);
+#else
+  Vdynamic_library_suffixes = Qnil;
+#endif
+
   DEFVAR_LISP ("load-file-rep-suffixes", Vload_file_rep_suffixes,
 	       doc: /* List of suffixes that indicate representations of \
 the same file.

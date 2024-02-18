@@ -1,6 +1,6 @@
 ;;; nntp.el --- nntp access for Gnus  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1987-1990, 1992-1998, 2000-2022 Free Software
+;; Copyright (C) 1987-1990, 1992-1998, 2000-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -314,7 +314,9 @@ retried once before actually displaying the error report."
     (when nntp-record-commands
       (nntp-record-command "*** CALLED nntp-report ***"))
 
-    (nnheader-report 'nntp args)))
+    (nnheader-report 'nntp args)
+
+    (apply #'error args)))
 
 (defsubst nntp-copy-to-buffer (buffer start end)
   "Copy string from unibyte current buffer to multibyte buffer."

@@ -1,6 +1,6 @@
 ;;; eldoc.el --- Show function arglist or variable docstring in echo area  -*- lexical-binding:t; -*-
 
-;; Copyright (C) 1996-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Noah Friedman <friedman@splode.com>
 ;; Keywords: extensions
@@ -65,7 +65,8 @@ If this variable is set to 0, display the documentation without any delay."
 (defcustom eldoc-print-after-edit nil
   "If non-nil, eldoc info is only shown after editing commands.
 Changing the value requires toggling `eldoc-mode'."
-  :type 'boolean)
+  :type 'boolean
+  :version "24.4")
 
 (defcustom eldoc-echo-area-display-truncation-message t
   "If non-nil, provide verbose help when a message has been truncated.
@@ -132,7 +133,10 @@ documentation in the echo area if the dedicated documentation
 buffer (displayed by `eldoc-doc-buffer') is already displayed in
 some window.  If the value is the symbol `maybe', then the echo area
 is only skipped if the documentation needs to be truncated there."
-  :type 'boolean)
+  :type '(choice (const :tag "Prefer ElDoc's documentation buffer" t)
+                 (const :tag "Prefer echo area" nil)
+                 (const :tag "Skip echo area if truncating" maybe))
+  :version "28.1")
 
 (defface eldoc-highlight-function-argument
   '((t (:inherit bold)))
@@ -388,6 +392,7 @@ Also store it in `eldoc-last-message' and return that value."
 (defun eldoc-display-message-no-interference-p ()
   "Return nil if displaying a message would cause interference."
   (not (or executing-kbd-macro
+           (bound-and-true-p edebug-active)
            ;; The following configuration shows "Matches..." in the
            ;; echo area when point is after a closing bracket, which
            ;; conflicts with eldoc.
@@ -570,7 +575,7 @@ known to be truncated."
 Honor `eldoc-echo-area-use-multiline-p' and
 `eldoc-echo-area-prefer-doc-buffer'."
   (cond
-   (;; Check if he wave permission to mess with echo area at all.  For
+   (;; Check if we have permission to mess with echo area at all.  For
     ;; example, if this-command is non-nil while running via an idle
     ;; timer, we're still in the middle of executing a command, e.g. a
     ;; query-replace where it would be annoying to overwrite the echo

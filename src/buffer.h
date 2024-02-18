@@ -1,6 +1,6 @@
 /* Header file for the buffer manipulation primitives.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -149,18 +149,12 @@ enum { BEG = 1, BEG_BYTE = BEG };
 #define BUF_BEG_UNCHANGED(buf) ((buf)->text->beg_unchanged)
 #define BUF_END_UNCHANGED(buf) ((buf)->text->end_unchanged)
 
-#define BUF_CHARS_UNCHANGED_MODIFIED(buf) \
-  ((buf)->text->chars_unchanged_modified)
-
 #define UNCHANGED_MODIFIED \
   BUF_UNCHANGED_MODIFIED (current_buffer)
 #define OVERLAY_UNCHANGED_MODIFIED \
   BUF_OVERLAY_UNCHANGED_MODIFIED (current_buffer)
 #define BEG_UNCHANGED BUF_BEG_UNCHANGED (current_buffer)
 #define END_UNCHANGED BUF_END_UNCHANGED (current_buffer)
-
-#define CHARS_UNCHANGED_MODIFIED \
-  BUF_CHARS_UNCHANGED_MODIFIED (current_buffer)
 
 /* Functions to set PT in the current buffer, or another buffer.  */
 
@@ -273,11 +267,6 @@ struct buffer_text
        finished; if it matches BUF_OVERLAY_MODIFF, beg_unchanged and
        end_unchanged contain no useful information.  */
     modiff_count overlay_unchanged_modified;
-
-    /* CHARS_MODIFF as of last redisplay that finished.  It's used
-       when we only care about changes in actual buffer text, not in
-       any other kind of changes, like properties etc.  */
-    modiff_count chars_unchanged_modified;
 
     /* Properties of this buffer's text.  */
     INTERVAL intervals;
@@ -662,9 +651,9 @@ struct buffer
   ptrdiff_t last_window_start;
 
   /* If the long line scan cache is enabled (i.e. the buffer-local
-     variable cache-long-line-scans is non-nil), newline_cache
-     points to the newline cache, and width_run_cache points to the
-     width run cache.
+     variable cache-long-scans is non-nil), newline_cache points to
+     the newline cache, and width_run_cache points to the width run
+     cache.
 
      The newline cache records which stretches of the buffer are
      known *not* to contain newlines, so that they can be skipped
@@ -701,7 +690,7 @@ struct buffer
      display optimizations must be used.  */
   bool_bf long_line_optimizations_p : 1;
 
-  /* The inveral tree containing this buffer's overlays. */
+  /* The interval tree containing this buffer's overlays. */
   struct itree_tree *overlays;
 
   /* Changes in the buffer are recorded here for undo, and t means

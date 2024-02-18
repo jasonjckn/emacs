@@ -1,6 +1,6 @@
 ;;; mh-search.el --- MH-Search mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 1995, 2001-2024 Free Software Foundation, Inc.
 
 ;; Author: Indexed search by Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -292,7 +292,7 @@ folder containing the index search results."
                                     (cons folder msg)))))
                  folder-results-map)
 
-        ;; Vist the results folder.
+        ;; Visit the results folder.
         (mh-visit-folder index-folder () (list folder-results-map origin-map))
 
         (goto-char (point-min))
@@ -1569,7 +1569,7 @@ If the folder returned doesn't exist then it is created."
     (save-excursion (mh-exec-cmd-quiet nil "rmf" chosen-name))
     (mh-exec-cmd-quiet nil "folder" "-create" "-fast" chosen-name)
     (mh-remove-from-sub-folders-cache chosen-name)
-    (when (boundp 'mh-speed-folder-map)
+    (when (and (boundp 'speedbar-buffer) speedbar-buffer)
       (mh-speed-add-folder chosen-name))
     chosen-name))
 

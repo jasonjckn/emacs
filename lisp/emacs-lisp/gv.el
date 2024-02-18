@@ -1,6 +1,6 @@
 ;;; gv.el --- generalized variables  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2024 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: extensions
@@ -271,7 +271,7 @@ instead the assignment is turned into something equivalent to
     (SETTER ARGS... temp)
     temp)
 so as to preserve the semantics of `setf'."
-  (declare (debug (sexp (&or symbolp lambda-expr) &optional sexp)))
+  (declare (debug (sexp [&or symbolp lambda-expr] &optional sexp)))
   (when (eq 'lambda (car-safe setter))
     (message "Use `gv-define-setter' or name %s's setter function" name))
   `(gv-define-setter ,name (val &rest args)
@@ -411,7 +411,6 @@ The return value is the last VAL in the list.
 (gv-define-setter buffer-local-value (val var buf)
   (macroexp-let2 nil v val
     `(with-current-buffer ,buf (set (make-local-variable ,var) ,v))))
-(make-obsolete-generalized-variable 'buffer-local-value nil "29.1")
 
 (gv-define-expander alist-get
   (lambda (do key alist &optional default remove testfn)

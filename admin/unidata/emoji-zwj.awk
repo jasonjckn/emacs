@@ -1,6 +1,6 @@
 #!/usr/bin/awk -f
 
-## Copyright (C) 2020, 2022 Free Software Foundation, Inc.
+## Copyright (C) 2020, 2022-2024 Free Software Foundation, Inc.
 
 ## Author: Robert Pluim <rpluim@gmail.com>
 
@@ -106,7 +106,8 @@ END {
 
      for (elt in ch)
     {
-        printf("(#x%s .\n,(eval-when-compile (regexp-opt\n'(\n%s\n))))\n", elt, vec[elt])
+        entries = vec[elt] sprintf("\n\"\\N{U+%s}\\N{U+FE0E}\"\n\"\\N{U+%s}\\N{U+FE0F}\"", elt, elt)
+        printf("(#x%s .\n,(eval-when-compile (regexp-opt\n'(\n%s\n))))\n", elt, entries)
     }
      print "))"
      print "  (set-char-table-range composition-function-table"

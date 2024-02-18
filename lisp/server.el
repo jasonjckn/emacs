@@ -1,6 +1,6 @@
 ;;; server.el --- Lisp code for GNU Emacs running as server process -*- lexical-binding: t -*-
 
-;; Copyright (C) 1986-1987, 1992, 1994-2022 Free Software Foundation,
+;; Copyright (C) 1986-1987, 1992, 1994-2024 Free Software Foundation,
 ;; Inc.
 
 ;; Author: William Sommerfeld <wesommer@athena.mit.edu>
@@ -182,8 +182,10 @@ space (this means characters from ! to ~; or from code 33 to
   :type 'hook)
 
 (defcustom server-after-make-frame-hook nil
-  "Hook run when the Emacs server creates a client frame.
-The created frame is selected when the hook is called."
+  "Hook run when the Emacs server starts using a client frame.
+The client frame is selected when the hook is called.
+The client frame could be a newly-created frame, or an
+existing frame reused for this purpose."
   :type 'hook
   :version "27.1")
 
@@ -1260,9 +1262,12 @@ The following commands are accepted by the client:
                  ;; choice there.)  In daemon mode on Windows, we can't
                  ;; make tty frames, so force the frame type to GUI
                  ;; there too.
-                 (when (and (eq system-type 'windows-nt)
-                            (or (daemonp)
-                                (eq window-system 'w32)))
+                 (when (or (and (eq system-type 'windows-nt)
+                                (or (daemonp)
+                                    (eq window-system 'w32)))
+                           ;; Client runs on Windows, but the server
+                           ;; runs on a Posix host.
+                           (equal tty-name "CONOUT$"))
                    (push "-window-system" args-left)))
 
                 ;; -position +LINE[:COLUMN]:  Set point to the given
@@ -1495,7 +1500,7 @@ so don't mark these buffers specially, just visit them normally."
 					  minibuffer-auto-raise))
 	       (filen (car file))
 	       (obuf (get-file-buffer filen)))
-	  (add-to-history 'file-name-history filen)
+          (file-name-history--add filen)
 	  (if (null obuf)
 	      (progn
 		(run-hooks 'pre-command-hook)
@@ -1911,10 +1916,11 @@ Returns the result of the evaluation, or signals an error if it
 cannot contact the specified server.  For example:
   (server-eval-at \"server\" \\='(emacs-pid))
 returns the process ID of the Emacs instance running \"server\"."
-  (let ((server-file (server--file-name))
-        (coding-system-for-read 'binary)
-        (coding-system-for-write 'binary)
-        address port secret process)
+  (let* ((server-dir (if server-use-tcp server-auth-dir server-socket-dir))
+         (server-file (expand-file-name server server-dir))
+         (coding-system-for-read 'binary)
+         (coding-system-for-write 'binary)
+         address port secret process)
     (unless (file-exists-p server-file)
       (error "No such server: %s" server))
     (with-temp-buffer

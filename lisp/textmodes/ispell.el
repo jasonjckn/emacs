@@ -1,6 +1,6 @@
 ;;; ispell.el --- interface to spell checkers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1994-1995, 1997-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1995, 1997-2024 Free Software Foundation, Inc.
 
 ;; Author: Ken Stevens <k.stevens@ieee.org>
 
@@ -214,12 +214,14 @@ Must be greater than 1."
 	((file-readable-p "/usr/share/lib/dict/words")
 	 "/usr/share/lib/dict/words")
 	((file-readable-p "/sys/dict") "/sys/dict"))
-  "Alternate plain word-list dictionary for spelling help."
+  "Alternate plain word-list dictionary for spelling help.
+This is also used by `ispell-lookup-words' and `ispell-complete-word'."
   :type '(choice file (const :tag "None" nil)))
 
 (defcustom ispell-complete-word-dict nil
   "Plain word-list dictionary used for word completion if
-different from `ispell-alternate-dictionary'."
+different from `ispell-alternate-dictionary'.
+This is also used by `ispell-lookup-words' and `ispell-complete-word'."
   :type '(choice file (const :tag "None" nil)))
 
 (defcustom ispell-message-dictionary-alist nil
@@ -318,7 +320,9 @@ window system by evaluating the following on startup to set this variable:
 ;;;###autoload
 (defcustom ispell-personal-dictionary nil
   "File name of your personal spelling dictionary, or nil.
-If nil, the default personal dictionary for your spelling checker is used."
+If nil, the default personal dictionary for your spelling checker is used.
+Due to a misfeature of Hunspell, if the value is an absolute file name, the
+file by that name must already exist for Hunspell to be able to use it."
   :type '(choice file
                  (const :tag "default" nil)))
 
@@ -518,7 +522,12 @@ re-start Emacs."
      "[^A-Za-z\345\344\366\351\340\374\350\346\370\347\305\304\326\311\300\334\310\306\330\307]"
      "[']" nil ("-C") "~list" iso-8859-1)
     ("hebrew" "[\340\341\342\343\344\345\346\347\350\351\353\352\354\356\355\360\357\361\362\364\363\367\366\365\370\371\372]" "[^\340\341\342\343\344\345\346\347\350\351\353\352\354\356\355\360\357\361\362\364\363\367\366\365\370\371\372]" "" nil ("-B") nil cp1255))
-  "Base value for `ispell-dictionary-alist'.")
+  "Base value for `ispell-dictionary-alist'.
+
+Note that when the speller program is \"aspell\" or \"hunspell\",
+some parts of the database, notably OTHERCHARS, will be overridden
+by parsing the dictionary data files, see `ispell-aspell-find-dictionary'
+and `ispell-parse-hunspell-affix-file'.")
 
 (defvar ispell-dictionary-alist nil
   "An alist of dictionaries and their associated parameters.
@@ -573,7 +582,11 @@ when the language uses non-ASCII characters.
 Note that with \"ispell\" as the speller, the CASECHARS and
 OTHERCHARS slots of the alist should contain the same character
 set as casechars and otherchars in the LANGUAGE.aff file \(e.g.,
-english.aff).  Aspell and Hunspell don't have this limitation.")
+english.aff).  Aspell and Hunspell don't have this limitation.
+Also, when the speller program is \"aspell\" or \"hunspell\",
+some parts of the database, notably OTHERCHARS, will be determined
+by parsing the dictionary data files, see `ispell-aspell-find-dictionary'
+and `ispell-parse-hunspell-affix-file'.")
 
 (defvar ispell-really-aspell nil
   "Non-nil if we can use Aspell extensions.")
@@ -1730,7 +1743,10 @@ If you specify a personal dictionary for the current buffer which is
 different from the current personal dictionary, the effect is similar
 to calling \\[ispell-change-dictionary].  This variable is automatically
 set when defined in the file with either `ispell-pdict-keyword' or the
-local variable syntax.")
+local variable syntax.
+
+Due to a misfeature of Hunspell, if the value is an absolute file name, the
+file by that name must already exist for Hunspell to be able to use it.")
 
 ;;;###autoload(put 'ispell-local-pdict 'safe-local-variable 'stringp)
 
@@ -2505,7 +2521,9 @@ Otherwise the variable `ispell-grep-command' contains the command
 
 Optional second argument contains the dictionary to use; the default is
 `ispell-alternate-dictionary', overridden by `ispell-complete-word-dict'
-if defined."
+if defined.  If none of LOOKUP-DICT, `ispell-alternate-dictionary',
+and `ispell-complete-word-dict' name an existing word-list file,
+this function signals an error."
   ;; We don't use the filter for this function, rather the result is written
   ;; into a buffer.  Hence there is no need to save the filter values.
   (if (null lookup-dict)
@@ -2514,9 +2532,9 @@ if defined."
 
   (if lookup-dict
       (unless (file-readable-p lookup-dict)
-	(error "lookup-words error: Unreadable or missing plain word-list %s."
+        (error "ispell-lookup-words: Unreadable or missing plain word-list %s"
 	       lookup-dict))
-    (error (concat "lookup-words error: No plain word-list found at system"
+    (error (concat "ispell-lookup-words: No plain word-list found at system"
                    "default locations.  "
                    "Customize `ispell-alternate-dictionary' to set yours.")))
 
@@ -3680,7 +3698,12 @@ If APPEND is non-nil, don't erase previous debugging output."
 If optional INTERIOR-FRAG is non-nil, then the word may be a character
 sequence inside of a word.
 
-Standard ispell choices are then available."
+Standard ispell choices are then available.
+
+This command uses a word-list file specified
+by `ispell-alternate-dictionary' or by `ispell-complete-word-dict';
+if none of those name an existing word-list file, this command
+signals an error."
   ;; FIXME: completion-at-point-function.
   (interactive "P")
   (let ((case-fold-search-val case-fold-search)
@@ -3959,7 +3982,8 @@ You can bind this to the key C-c i in GNUS or mail by adding to
 		       (point-max)))
 		    (t (min (point-max) (funcall ispell-message-text-end))))))
 	   (default-prefix   ; Vanilla cite prefix (just used for cite-regexp)
-	     (if (ispell-non-empty-string mail-yank-prefix)
+	     (if mail-yank-prefix
+                 (ispell-non-empty-string mail-yank-prefix)
 	       "   \\|\t"))
 	   (cite-regexp			;Prefix of quoted text
 	    (cond

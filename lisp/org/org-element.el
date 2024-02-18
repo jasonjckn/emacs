@@ -1,6 +1,6 @@
 ;;; org-element.el --- Parser for Org Syntax         -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2024 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <n.goaziou at gmail dot com>
 ;; Keywords: outlines, hypermedia, calendar, wp
@@ -1365,7 +1365,16 @@ Assume point is at beginning of the inline task."
 	   (priority (and (looking-at "\\[#.\\][ \t]*")
 			  (progn (goto-char (match-end 0))
 				 (aref (match-string 0) 2))))
-	   (title-start (point))
+           (commentedp
+	    (and (let ((case-fold-search nil))
+                   (looking-at org-element-comment-string))
+		 (goto-char (match-end 0))
+                 (when (looking-at-p "\\(?:[ \t]\\|$\\)")
+                   (point))))
+	   (title-start (prog1 (point)
+                          (unless (or todo priority commentedp)
+                            ;; Headline like "* :tag:"
+                            (skip-chars-backward " \t"))))
 	   (tags (when (re-search-forward
 			"[ \t]+\\(:[[:alnum:]_@#%:]+:\\)[ \t]*$"
 			(line-end-position)
@@ -1375,6 +1384,7 @@ Assume point is at beginning of the inline task."
 	   (title-end (point))
 	   (raw-value (org-trim
 		       (buffer-substring-no-properties title-start title-end)))
+           (archivedp (member org-element-archive-tag tags))
 	   (task-end (save-excursion
 		       (end-of-line)
 		       (and (re-search-forward org-element-headline-re limit t)
@@ -1410,7 +1420,9 @@ Assume point is at beginning of the inline task."
 			 :todo-keyword todo
 			 :todo-type todo-type
 			 :post-blank (1- (count-lines (or task-end begin) end))
-			 :post-affiliated begin)
+			 :post-affiliated begin
+                         :archivedp archivedp
+			 :commentedp commentedp)
 		   time-props
 		   standard-props))))
       (org-element-put-property
@@ -2370,7 +2382,9 @@ Assume point is at the beginning of the fixed-width area."
 (defun org-element-fixed-width-interpreter (fixed-width _)
   "Interpret FIXED-WIDTH element as Org syntax."
   (let ((value (org-element-property :value fixed-width)))
-    (and value (replace-regexp-in-string "^" ": " value))))
+    (and value
+         (if (string-empty-p value) ":\n"
+           (replace-regexp-in-string "^" ": " value)))))
 
 
 ;;;; Horizontal Rule
@@ -2448,7 +2462,7 @@ CDR is a plist containing `:key', `:value', `:begin', `:end',
 	  (org-element-property :value keyword)))
 
 
-;;;; Latex Environment
+;;;; LaTeX Environment
 
 (defconst org-element--latex-begin-environment
   "^[ \t]*\\\\begin{\\([A-Za-z0-9*]+\\)}"
@@ -3398,7 +3412,7 @@ CONTENTS is the contents of the object."
   (format "/%s/" contents))
 
 
-;;;; Latex Fragment
+;;;; LaTeX Fragment
 
 (defun org-element-latex-fragment-parser ()
   "Parse LaTeX fragment at point, if any.
@@ -5287,7 +5301,7 @@ indentation removed from its contents."
 ;; mechanism is robust enough to preserve total order among elements
 ;; even when the tree is only partially synchronized.
 ;;
-;; The cache code debuggin is fairly complex because cache request
+;; The cache code debugging is fairly complex because cache request
 ;; state is often hard to reproduce.  An extensive diagnostics
 ;; functionality is built into the cache code to assist hunting bugs.
 ;; See `org-element--cache-self-verify', `org-element--cache-self-verify-frequency',
@@ -5295,6 +5309,7 @@ indentation removed from its contents."
 ;; `org-element--cache-diagnostics-ring-size', `org-element--cache-map-statistics',
 ;; `org-element--cache-map-statistics-threshold'.
 
+;;;###autoload
 (defvar org-element-use-cache t
   "Non-nil when Org parser should cache its results.")
 
@@ -5314,7 +5329,7 @@ seconds.")
   "Duration, as a time value, of the pause between synchronizations.
 See `org-element-cache-sync-duration' for more information.")
 
-(defvar org-element--cache-self-verify t
+(defvar org-element--cache-self-verify nil
   "Activate extra consistency checks for the cache.
 
 This may cause serious performance degradation depending on the value
@@ -5469,7 +5484,7 @@ This variable is used to determine when re-parsing buffer is not going
 to slow down the command.
 
 If the commands end up modifying the cache, the worst case scenario is
-performance drop.  So, advicing these commands is safe.  Yet, it is
+performance drop.  So, advising these commands is safe.  Yet, it is
 better to remove the commands advised in such a way from this list.")
 
 (defmacro org-element--request-key (request)
@@ -5717,7 +5732,11 @@ This function assumes `org-element--headline-cache' is a valid AVL tree."
               ;; `combine-change-calls' because the buffer is potentially
               ;; changed without notice (the change will be registered
               ;; after exiting the `combine-change-calls' body though).
-              (memq #'org-element--cache-after-change after-change-functions))))))
+              (catch :inhibited
+                (org-fold-core-cycle-over-indirect-buffers
+                  (unless (memq #'org-element--cache-after-change after-change-functions)
+                    (throw :inhibited nil)))
+                t))))))
 
 ;; FIXME: Remove after we establish that hashing is effective.
 (defun org-element-cache-hash-show-statistics ()
@@ -5887,7 +5906,7 @@ If this warning appears regularly, please report the warning text to Org mode ma
        (org-element-property :begin element)
        (org-element-property :org-element--cache-sync-key element))
       (org-element-cache-reset)
-      (throw 'quit nil))
+      (throw 'org-element--cache-quit nil))
     (or (avl-tree-delete org-element--cache element)
         (progn
           ;; This should not happen, but if it is, would be better to know
@@ -5900,7 +5919,7 @@ If this warning appears regularly, please report the warning text to Org mode ma
            (org-element-property :begin element)
            (org-element-property :org-element--cache-sync-key element))
           (org-element-cache-reset)
-          (throw 'quit nil)))))
+          (throw 'org-element--cache-quit nil)))))
 
 ;;;; Synchronization
 
@@ -6363,6 +6382,10 @@ completing the request."
                          ;; We altered the tree structure.  The tree
                          ;; traversal needs to be restarted.
                          (setf (org-element--request-key request) key)
+                         ;; Make sure that we restart tree traversal
+                         ;; past already shifted elements (before the
+                         ;; removed DATA).
+                         (setq start key)
                          (setf (org-element--request-parent request) parent)
                          ;; Restart tree traversal.
                          (setq node (org-element--cache-root)
@@ -6533,7 +6556,7 @@ the expected result."
                    (error "org-element: Parsing aborted by user.  Cache has been cleared.
 If you observe Emacs hangs frequently, please report this to Org mode mailing list (M-x org-submit-bug-report)."))
                  (message (substitute-command-keys
-                           "`org-element--parse-buffer': Suppressed `\\[keyboard-quit]'.  Press `\\[keyboard-quit]' %d more times to force interruption.")
+                           "`org-element--parse-to': Suppressed `\\[keyboard-quit]'.  Press `\\[keyboard-quit]' %d more times to force interruption.")
                           (- org-element--cache-interrupt-C-g-max-count
                              org-element--cache-interrupt-C-g-count)))
 	       (unless element
@@ -6548,7 +6571,9 @@ If you observe Emacs hangs frequently, please report this to Org mode mailing li
                  ;; Make sure that we return referenced element in cache
                  ;; that can be altered directly.
                  (if element
-                     (setq element (or (org-element--cache-put element) element))
+                     (progn
+                       (org-element-put-property element :granularity 'element)
+                       (setq element (or (org-element--cache-put element) element)))
                    ;; Nothing to parse (i.e. empty file).
                    (throw 'exit parent))
                  (unless (or (not (org-element--cache-active-p)) parent)
@@ -6684,20 +6709,8 @@ The function returns the new value of `org-element--cache-change-warning'."
        (setq org-element--cache-change-tic (buffer-chars-modified-tick))
        (setq org-element--cache-last-buffer-size (buffer-size))
        (goto-char beg)
-       (beginning-of-line)
-       (let ((bottom (save-excursion
-                       (goto-char end)
-                       (if (and (bolp)
-                                ;; When beg == end, still extent to eol.
-                                (> (point) beg))
-                           ;; FIXME: Potential pitfall.
-                           ;; We are appending to an element end.
-                           ;; Unless the last inserted char is not
-                           ;; newline, the next element is not broken
-                           ;; and does not need to be purged from the
-                           ;; cache.
-                           end
-                         (line-end-position)))))
+       (forward-line 0)
+       (let ((bottom (save-excursion (goto-char end) (line-end-position))))
          (prog1
              ;; Use the worst change warning to not miss important edits.
              ;; This function is called before edit and after edit by
@@ -6923,12 +6936,13 @@ known element in cache (it may start after END)."
                           (let ((current (org-with-point-at (org-element-property :begin up)
                                            (org-element-with-disabled-cache
                                              (and (looking-at-p org-element-headline-re)
-                                                  (org-element-headline-parser))))))
+                                                  (org-element-headline-parser nil 'fast))))))
                             (when (eq 'headline (org-element-type current))
                               (org-element--cache-log-message
                                "Found non-robust headline that can be updated individually: %S"
                                (org-element--format-element current))
                               (org-element-set-element up current)
+                              (org-element-put-property up :granularity 'element)
                               t)))
                      ;; If UP is org-data, the situation is similar to
                      ;; headline case.  We just need to re-parse the
@@ -7255,18 +7269,18 @@ Each element indicates the latest `org-element--cache-change-tic' when
 change did not contain gaps.")
 
 ;;;###autoload
-(defun org-element-cache-reset (&optional all no-persistance)
+(defun org-element-cache-reset (&optional all no-persistence)
   "Reset cache in current buffer.
 When optional argument ALL is non-nil, reset cache in all Org
 buffers.
-When optional argument NO-PERSISTANCE is non-nil, do not try to update
+When optional argument NO-PERSISTENCE is non-nil, do not try to update
 the cache persistence in the buffer."
   (interactive "P")
   (dolist (buffer (if all (buffer-list) (list (current-buffer))))
     (org-with-base-buffer buffer
       (when (and org-element-use-cache (derived-mode-p 'org-mode))
         ;; Only persist cache in file buffers.
-        (when (and (buffer-file-name) (not no-persistance))
+        (when (and (buffer-file-name) (not no-persistence))
           (when (not org-element-cache-persistent)
             (org-persist-unregister 'org-element--headline-cache (current-buffer))
             (org-persist-unregister 'org-element--cache (current-buffer)))
@@ -7387,14 +7401,16 @@ the cache."
         (org-element-at-point to-pos)
         (cl-macrolet ((cache-root
                         ;; Use the most optimal version of cache available.
-                        () `(if (memq granularity '(headline headline+inlinetask))
-                                (org-element--headline-cache-root)
-                              (org-element--cache-root)))
+                        () `(org-with-base-buffer nil
+                              (if (memq granularity '(headline headline+inlinetask))
+                                  (org-element--headline-cache-root)
+                                (org-element--cache-root))))
                       (cache-size
                         ;; Use the most optimal version of cache available.
-                        () `(if (memq granularity '(headline headline+inlinetask))
-                                org-element--headline-cache-size
-                              org-element--cache-size))
+                        () `(org-with-base-buffer nil
+                              (if (memq granularity '(headline headline+inlinetask))
+                                  org-element--headline-cache-size
+                                org-element--cache-size)))
                       (cache-walk-restart
                         ;; Restart tree traversal after AVL tree re-balance.
                         () `(when node
@@ -7424,8 +7440,9 @@ the cache."
                               ;; Avoid extra staff like timer cancels et al
                               ;; and only call `org-element--cache-sync-requests' when
                               ;; there are pending requests.
-                              (when org-element--cache-sync-requests
-                                (org-element--cache-sync (current-buffer)))
+                              (org-with-base-buffer nil
+                                (when org-element--cache-sync-requests
+                                  (org-element--cache-sync (current-buffer))))
                               ;; Call `org-element--parse-to' directly avoiding any
                               ;; kind of `org-element-at-point' overheads.
                               (if restrict-elements
@@ -7496,8 +7513,9 @@ the cache."
                               tmpnext-start))
                       ;; Check if cache does not have gaps.
                       (cache-gapless-p
-                        () `(eq org-element--cache-change-tic
-                                (alist-get granularity org-element--cache-gapless))))
+                        () `(org-with-base-buffer nil
+                              (eq org-element--cache-change-tic
+                                  (alist-get granularity org-element--cache-gapless)))))
           ;; The core algorithm is simple walk along binary tree.  However,
           ;; instead of checking all the tree elements from first to last
           ;; (like in `avl-tree-mapcar'), we begin from FROM-POS skipping
@@ -7539,15 +7557,15 @@ the cache."
                  ;; beginning.
                  (next-element-re (pcase granularity
                                     ((or `headline
-                                         (guard (eq '(headline)
-                                                    restrict-elements)))
+                                         (guard (equal '(headline)
+                                                       restrict-elements)))
                                      (cons
                                       (org-with-limited-levels
                                        org-element-headline-re)
                                       'match-beg))
                                     (`headline+inlinetask
                                      (cons
-                                      (if (eq '(inlinetask) restrict-elements)
+                                      (if (equal '(inlinetask) restrict-elements)
                                           (org-inlinetask-outline-regexp)
                                         org-element-headline-re)
                                       'match-beg))
@@ -7625,7 +7643,9 @@ the cache."
                         ;; In the process, we may alter the buffer,
                         ;; so also keep track of the cache state.
                         (progn
-                          (setq modified-tic org-element--cache-change-tic)
+                          (setq modified-tic
+                                (org-with-base-buffer nil
+                                  org-element--cache-change-tic))
                           (setq cache-size (cache-size))
                           ;; When NEXT-RE/FAIL-RE is provided, skip to
                           ;; next regexp match after :begin of the current
@@ -7659,7 +7679,7 @@ the cache."
                               ;;
                               ;; Call FUNC.  FUNC may move point.
                               (setq org-element-cache-map-continue-from nil)
-                              (if org-element--cache-map-statistics
+                              (if (org-with-base-buffer nil org-element--cache-map-statistics)
                                   (progn
                                     (setq before-time (float-time))
                                     (push (funcall func data) result)
@@ -7678,7 +7698,15 @@ the cache."
                               (when org-element-cache-map-continue-from
                                 (goto-char org-element-cache-map-continue-from))
                               (when (> (point) start)
-                                (move-start-to-next-match nil))
+                                (move-start-to-next-match nil)
+                                ;; (point) inside matching element.
+                                ;; Go further.
+                                (when (> (point) start)
+                                  (setq data (element-match-at-point))
+                                  (if (not data)
+                                      (cache-walk-abort)
+                                    (goto-char (next-element-start))
+                                    (move-start-to-next-match next-element-re))))
                               ;; Drop nil.
                               (unless (car result) (pop result)))
                             ;; If FUNC did not move the point and we
@@ -7691,8 +7719,9 @@ the cache."
                                            start))
                               (setq start nil))
                             ;; Check if the buffer has been modified.
-                            (unless (and (eq modified-tic org-element--cache-change-tic)
-                                         (eq cache-size (cache-size)))
+                            (unless (org-with-base-buffer nil
+                                      (and (eq modified-tic org-element--cache-change-tic)
+                                           (eq cache-size (cache-size))))
                               ;; START may no longer be valid, update
                               ;; it to beginning of real element.
                               ;; Upon modification, START may lay
@@ -7700,7 +7729,8 @@ the cache."
                               ;; it to real beginning then despite
                               ;; START being larger.
                               (setq start nil)
-                              (move-start-to-next-match nil)
+                              (let ((data nil)) ; data may not be valid. ignore it.
+                                (move-start-to-next-match nil))
                               ;; The new element may now start before
                               ;; or at already processed position.
                               ;; Make sure that we continue from an
@@ -7821,7 +7851,7 @@ element ending there."
     (setq cached-only nil))
   (let (element)
     (when (org-element--cache-active-p)
-      (if (not org-element--cache) (org-element-cache-reset)
+      (if (not (org-with-base-buffer nil org-element--cache)) (org-element-cache-reset)
         (unless cached-only (org-element--cache-sync (current-buffer) pom))))
     (setq element (if cached-only
                       (when (and (org-element--cache-active-p)

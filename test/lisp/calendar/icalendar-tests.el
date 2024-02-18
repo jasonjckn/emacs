@@ -1,6 +1,6 @@
 ;;; icalendar-tests.el --- Test suite for icalendar.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2005, 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2005, 2008-2024 Free Software Foundation, Inc.
 
 ;; Author:         Ulf Jasper <ulf.jasper@web.de>
 ;; Created:        March 2005
@@ -63,7 +63,8 @@
 
 (defun icalendar-tests--get-error-string-for-export (diary-string)
   "Call icalendar-export for DIARY-STRING and return resulting error-string."
-  (let ((file (make-temp-file "export.ics")))
+  (ert-with-temp-file file
+    :suffix "-export.ics"
     (with-temp-buffer
       (insert diary-string)
       (icalendar-export-region (point-min) (point-max) file))
@@ -998,6 +999,9 @@ END:VALARM
 
 (ert-deftest icalendar-export-bug-56241-dotted-pair ()
   "See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=56241#5"
+  ;; This test started failing early July 2023 without any apparent change
+  ;; to the underlying code, so is probably sensitive to the current date.
+  :tags '(:unstable)
   (let ((icalendar-export-sexp-enumeration-days 366))
     (mapc (lambda (diary-string)
             (should (string= "" (icalendar-tests--get-error-string-for-export

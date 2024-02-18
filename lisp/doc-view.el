@@ -1,6 +1,6 @@
 ;;; doc-view.el --- Document viewer for Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2024 Free Software Foundation, Inc.
 ;;
 ;; Author: Tassilo Horn <tsdh@gnu.org>
 ;; Keywords: files, pdf, ps, dvi, djvu, epub, cbz, fb2, xps, openxps
@@ -209,8 +209,8 @@ are available (see Info node `(emacs)Document View')."
           function)
   :version "24.4")
 
-(defcustom doc-view-mupdf-use-svg (image-type-available-p 'svg)
-  "Whether to use svg images for PDF files."
+(defcustom doc-view-mupdf-use-svg nil
+  "Whether to use SVG images for PDF files."
   :type 'boolean
   :version "29.1")
 
@@ -2085,7 +2085,7 @@ GOTO-PAGE-FN other than `doc-view-goto-page'."
             ;; zip-archives, so that this same association is used for
             ;; cbz files. This is fine, as cbz files should be handled
             ;; like epub anyway.
-            ((looking-at "PK") '(epub odf))))))
+            ((looking-at "PK") '(epub odf cbz))))))
     (setq-local
      doc-view-doc-type
      (car (or (nreverse (seq-intersection name-types content-types #'eq))

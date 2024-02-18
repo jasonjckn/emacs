@@ -1,6 +1,6 @@
 /* Lisp object printing and output streams.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -759,8 +759,7 @@ For instance:
 
   (prin1 object nil \\='((length . 100) (circle . t))).
 
-See the manual entry `(elisp)Output Overrides' for a list of possible
-values.
+See Info node `(elisp)Output Overrides' for a list of possible values.
 
 As a special case, OVERRIDES can also simply be the symbol t, which
 means "use default values for all the print-related settings".  */)
@@ -2034,8 +2033,13 @@ print_vectorlike (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag,
       /* Now the node must be up-to-date, and calling functions like
 	 Ftreesit_node_start will not signal.  */
       bool named = treesit_named_node_p (XTS_NODE (obj)->node);
-      const char *delim1 = named ? "(" : "\"";
-      const char *delim2 = named ? ")" : "\"";
+      /* We used to use () as delimiters for named nodes, but that
+	 confuses pretty-printing a tad bit.  There might be more
+	 little breakages here and there if we print parenthesizes
+	 inside an object, so I guess better not do it.
+	 (bug#60696)  */
+      const char *delim1 = named ? "" : "\"";
+      const char *delim2 = named ? "" : "\"";
       print_c_string (delim1, printcharfun);
       print_string (Ftreesit_node_type (obj), printcharfun);
       print_c_string (delim2, printcharfun);

@@ -1,6 +1,6 @@
 ;;; erc-services.el --- Identify to NickServ  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2004, 2006-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 ;; URL: https://www.emacswiki.org/emacs/ErcNickserv
@@ -168,7 +168,7 @@ You can also use \\[erc-nickserv-identify-mode] to change modes."
   :type 'boolean)
 
 (defcustom erc-use-auth-source-for-nickserv-password nil
-  "Query auth-source for a password when identifiying to NickServ.
+  "Query auth-source for a password when identifying to NickServ.
 Passwords from `erc-nickserv-passwords' take precedence.  See
 function `erc-nickserv-get-password'."
   :version "28.1"
@@ -180,9 +180,9 @@ Called with a subset of keyword parameters known to
 `auth-source-search' and relevant to authenticating to nickname
 services.  In return, ERC expects a string to send as the
 password, or nil, to fall through to the next method, such as
-prompting.  See info node `(erc) Connecting' for details."
-  :package-version '(ERC . "5.4.1") ; FIXME update when publishing to ELPA
-  :type '(choice (const erc-auth-source-search)
+prompting.  See Info node `(erc) auth-source' for details."
+  :package-version '(ERC . "5.5")
+  :type '(choice (function-item erc-auth-source-search)
                  (const nil)
                  function))
 

@@ -1,6 +1,6 @@
 ;;; edmacro.el --- keyboard macro editor  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993-1994, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2001-2024 Free Software Foundation, Inc.
 
 ;; Author: Dave Gillespie <daveg@synaptics.com>
 ;; Keywords: abbrev
@@ -156,9 +156,9 @@ With a prefix argument, format the macro in a more concise way."
 	     (setq mac cmd)
 	     (setq cmd nil)))
       (when (kmacro-p mac)
-	(setq mac (kmacro--keys mac)
-	      mac-counter (kmacro--counter mac)
-	      mac-format (kmacro--format mac)))
+	(setq mac-counter (kmacro--counter mac)
+	      mac-format (kmacro--format mac)
+              mac (kmacro--keys mac)))
       (unless (arrayp mac)
 	(error "Key sequence %s is not a keyboard macro"
 	       (key-description keys)))
@@ -179,7 +179,7 @@ With a prefix argument, format the macro in a more concise way."
         (setq-local edmacro-finish-hook finish-hook)
         (setq-local edmacro-store-hook store-hook)
         (setq-local font-lock-defaults
-                    '(edmacro-mode-font-lock-keywords nil nil nil nil))
+                    '(edmacro-mode-font-lock-keywords nil nil ((?\" . "w"))))
         (setq font-lock-multiline nil)
 	(erase-buffer)
         (insert (substitute-command-keys
@@ -228,14 +228,14 @@ With a prefix argument, format the macro in a more concise way."
 ;;;###autoload
 (defun read-kbd-macro (start &optional end)
   "Read the region as a keyboard macro definition.
-The region is interpreted as spelled-out keystrokes, e.g., \"M-x abc RET\".
-See documentation for `edmacro-mode' for details.
+The region between START and END is interpreted as spelled-out keystrokes,
+e.g., \"M-x abc RET\".  See documentation for `edmacro-mode' for details.
 Leading/trailing \"C-x (\" and \"C-x )\" in the text are allowed and ignored.
 The resulting macro is installed as the \"current\" keyboard macro.
 
 In Lisp, may also be called with a single STRING argument in which case
 the result is returned rather than being installed as the current macro.
-The result will be a string if possible, otherwise an event vector.
+The result is a vector of input events.
 Second argument NEED-VECTOR means to return an event vector always."
   (interactive "r")
   (if (stringp start)
@@ -626,8 +626,7 @@ The string represents the same events; Meta is indicated by bit 7.
 This function assumes that the events can be stored in a string."
   (setq seq (copy-sequence seq))
   (cl-loop for i below (length seq) do
-           (when (/= (logand (aref seq i) 128) 0)
-             (setf (aref seq i) (logand (aref seq i) 127))))
+           (setf (aref seq i) (logand (aref seq i) 127)))
   seq)
 
 ;; These are needed in a --without-x build.
@@ -673,6 +672,13 @@ This function assumes that the events can be stored in a string."
 
 (defun edmacro-parse-keys (string &optional _need-vector)
   (let ((result (kbd string)))
+    ;; Always return a vector.  Stefan Monnier <monnier@iro.umontreal.ca>
+    ;; writes: "I want to eliminate the use of strings that stand for a
+    ;; sequence of events because it does nothing more than leave latent
+    ;; bugs and create confusion (between the strings used as input to
+    ;; `read-kbd-macro' and the strings that used to be output by
+    ;; `read-kbd-macro'), while increasing the complexity of the rest of
+    ;; the code which has to handle both vectors and strings."
     (if (stringp result)
         (seq-into result 'vector)
       result)))
